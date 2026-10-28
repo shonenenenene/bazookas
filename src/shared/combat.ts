@@ -1,7 +1,8 @@
 import { createTrace, traceBox } from './collision/trace';
-import { COMBAT, MOVE, PLAYER } from './config';
+import { COMBAT, MOVE } from './config';
 import { type Vec3, addScaled, copy, lerp, normalize, scale, set, vec3 } from './math';
-import { WEAPONS } from './weapons';
+import { type PlayerState, eyeHeight, playerHalf } from './player';
+import { type WeaponDef, WEAPONS } from './weapons';
 import type { Player, Rocket, World } from './world';
 
 // ─────────────────────────────────────────────────────────────
@@ -13,26 +14,30 @@ const DEG = Math.PI / 180;
 const AXES = ['x', 'y', 'z'] as const;
 const ROCKET_HALF = vec3(COMBAT.rocketSize, COMBAT.rocketSize, COMBAT.rocketSize);
 const POINT = vec3(0, 0, 0);
-/** Коробка игрока, раздутая на размер ракеты — для проверки прямого попадания */
-const HIT_HALF = vec3(
-  PLAYER.halfExtents.x + COMBAT.rocketSize,
-  PLAYER.halfExtents.y + COMBAT.rocketSize,
-  PLAYER.halfExtents.z + COMBAT.rocketSize,
-);
 
 // Черновики
 const tr = createTrace();
 const end = vec3();
 const dir = vec3();
+/** Коробка игрока, раздутая на размер ракеты — для проверки прямого попадания */
+const hitHalf = vec3();
 
 // ─── Выстрел ────────────────────────────────────────────────
 
-/** Выпустить ракету(ы) из глаз игрока по направлению взгляда. */
+/**
+ * Выпустить ракету(ы) из глаз игрока по направлению взгляда (из глаз — чтобы летела точно в прицел;
+ * из ствола базуки её только рисует клиент).
+ * На сервере и в песочнице ракеты настоящие. Клиент в сети запускает «предсказанные» (world.predictedRockets):
+ * они вылетают сразу, без пинга, и толкают нас самих при рокет-джампе, но урон считает только сервер.
+ */
 export function fireWeapon(world: World, p: Player): void {
   const w = WEAPONS[p.weapon];
   p.cooldown = w.reload;
+  world.events.push({ type: 'fire', playerId: p.id, weapon: p.weapon });
 
+  const list = world.authority ? world.rockets : world.predictedRockets;
   const o = p.state.origin;
+  const eye = eyeHeight(p.state);
   for (let i = 0; i < w.rockets; i++) {
     // Веер: ракеты расходятся по горизонтали симметрично относительно прицела
     const yaw = p.cmd.yaw + (i - (w.rockets - 1) / 2) * w.spread * DEG;
@@ -42,16 +47,22 @@ export function fireWeapon(world: World, p: Player): void {
     scale(vel, vel, w.speed);
 
     // Ракеты создаются только при выстреле (не каждый кадр), так что новый объект тут не страшен
-    const start = vec3(o.x, o.y + PLAYER.eyeHeight, o.z);
-    world.rockets.push({ id: world.nextId++, ownerId: p.id, weapon: p.weapon, pos: start, prevPos: copy(vec3(), start), vel, age: 0 });
+    const start = vec3(o.x, o.y + eye, o.z);
+    list.push({
+      id: world.nextId++, ownerId: p.id, serial: p.rocketsFired++, weapon: p.weapon,
+      pos: start, prevPos: copy(vec3(), start), vel, age: 0,
+    });
   }
-  world.events.push({ type: 'fire', playerId: p.id, weapon: p.weapon });
 }
 
 // ─── Полёт ракет ────────────────────────────────────────────
 
 export function updateRockets(world: World, dt: number): void {
-  const rockets = world.rockets;
+  moveRockets(world, world.rockets, dt);
+}
+
+/** Полёт ракет из списка: дуга, стены, игроки, взрыв. Клиент в сети так же гоняет свои предсказанные ракеты. */
+export function moveRockets(world: World, rockets: Rocket[], dt: number): void {
   // Идём с конца, чтобы безопасно удалять взорвавшиеся
   for (let i = rockets.length - 1; i >= 0; i--) {
     const r = rockets[i];
@@ -75,7 +86,9 @@ export function updateRockets(world: World, dt: number): void {
     let hitPlayer: Player | null = null;
     for (const p of world.players) {
       if (p.dead || p.id === r.ownerId) continue; // в себя напрямую попасть нельзя (только взрывом)
-      const f = segmentVsBox(r.pos, end, p.state.origin, HIT_HALF);
+      const h = playerHalf(p.state);
+      set(hitHalf, h.x + COMBAT.rocketSize, h.y + COMBAT.rocketSize, h.z + COMBAT.rocketSize);
+      const f = segmentVsBox(r.pos, end, p.state.origin, hitHalf);
       if (f < hitFrac) {
         hitFrac = f;
         hitPlayer = p;
@@ -102,7 +115,9 @@ function removeAt<T>(arr: T[], i: number): void {
 
 function explode(world: World, r: Rocket, pos: Vec3, direct: Player | null): void {
   const w = WEAPONS[r.weapon];
-  world.events.push({ type: 'explode', pos: copy(vec3(), pos), weapon: r.weapon });
+  world.events.push({ type: 'explode', pos: copy(vec3(), pos), weapon: r.weapon, ownerId: r.ownerId, serial: r.serial });
+  // Клиент в сети: урон и толчки считает сервер (свой рокет-джамп предсказывает prediction.ts)
+  if (!world.authority) return;
 
   // Прямое попадание: полный урон, толкает по направлению полёта
   if (direct) {
@@ -110,23 +125,38 @@ function explode(world: World, r: Rocket, pos: Vec3, direct: Player | null): voi
     applyDamage(world, direct, r.ownerId, w.directDamage, dir, w.knockback, r.weapon);
   }
 
-  // Взрывная волна: урон падает от центра к краю радиуса
+  // Взрывная волна по остальным
   for (const p of world.players) {
     if (p.dead || p === direct) continue;
-    const o = p.state.origin;
-    const dist = distanceToBox(pos, o, PLAYER.halfExtents);
-    if (dist >= w.splashRadius) continue;
-
-    // Стена между взрывом и игроком гасит волну
-    traceBox(tr, world.map.brushes, pos, o, POINT);
-    if (tr.fraction < 1) continue;
-
-    const damage = w.splashDamage * (1 - dist / w.splashRadius);
-    // Толкаем от взрыва чуть выше центра игрока — так взрыв под ногами подбрасывает
-    set(dir, o.x - pos.x, o.y + 20 - pos.y, o.z - pos.z);
-    normalize(dir, dir);
-    applyDamage(world, p, r.ownerId, damage, dir, w.knockback, r.weapon);
+    const damage = splashDamage(world, pos, w, p, dir);
+    if (damage > 0) applyDamage(world, p, r.ownerId, damage, dir, w.knockback, r.weapon);
   }
+}
+
+/**
+ * Взрывная волна по игроку: урон (от центра к краю радиуса падает до 0, стена гасит совсем)
+ * и куда толкать (в dirOut). 0 — не задело. Отдельной функцией, чтобы клиент считал свой
+ * рокет-джамп точь-в-точь как сервер.
+ */
+export function splashDamage(world: World, pos: Vec3, w: WeaponDef, p: Player, dirOut: Vec3): number {
+  const o = p.state.origin;
+  const dist = distanceToBox(pos, o, playerHalf(p.state));
+  if (dist >= w.splashRadius) return 0;
+
+  traceBox(tr, world.map.brushes, pos, o, POINT);
+  if (tr.fraction < 1) return 0;
+
+  // Толкаем от взрыва чуть выше центра игрока — так взрыв под ногами подбрасывает
+  set(dirOut, o.x - pos.x, o.y + 20 - pos.y, o.z - pos.z);
+  normalize(dirOut, dirOut);
+  return w.splashDamage * (1 - dist / w.splashRadius);
+}
+
+/** Толчок от взрыва. Считаем от ПОЛНОГО урона — поэтому рокет-джамп сильный, хотя по себе урон меньше. */
+export function applyKnockback(ps: PlayerState, pushDir: Vec3, damage: number, knockbackScale: number): void {
+  const push = Math.min(damage * COMBAT.knockbackPerDamage * knockbackScale, COMBAT.maxKnockback);
+  addScaled(ps.velocity, ps.velocity, pushDir, push);
+  ps.knockbackTime = Math.min(Math.max(push / 2500, 0.05), 0.2);
 }
 
 function applyDamage(
@@ -134,16 +164,12 @@ function applyDamage(
   target: Player,
   attackerId: number,
   damage: number,
-  dir: Vec3,
+  pushDir: Vec3,
   knockbackScale: number,
   weapon: number,
 ): void {
   if (target.dead) return;
-
-  // Отбрасывание считаем от ПОЛНОГО урона — поэтому рокет-джамп сильный, хотя по себе урон меньше
-  const push = Math.min(damage * COMBAT.knockbackPerDamage * knockbackScale, COMBAT.maxKnockback);
-  addScaled(target.state.velocity, target.state.velocity, dir, push);
-  target.state.knockbackTime = Math.min(Math.max(push / 2500, 0.05), 0.2);
+  applyKnockback(target.state, pushDir, damage, knockbackScale);
 
   const dealt = target.id === attackerId ? damage * COMBAT.selfDamageScale : damage;
   target.health -= dealt;

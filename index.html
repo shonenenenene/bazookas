@@ -13,6 +13,8 @@
     <div class="hud">
       <div id="hud-hurt" class="hurt"></div>
       <div id="hud-crosshair" class="crosshair"></div>
+      <!-- Отскоки от стены: сколько осталось до приземления (ромбики под прицелом) -->
+      <div id="hud-walljumps" class="walljumps" hidden></div>
       <div id="hud-debug" class="hud__debug"></div>
       <div id="hud-feed" class="feed"></div>
 
@@ -50,6 +52,15 @@
 
           <button class="play">[ CLiCK 2 PLAY ]</button>
 
+          <!-- Сеть: ник и комната (заполняется из src/client/ui/menu.ts) -->
+          <div class="netbox">
+            <label>
+              nick:
+              <input id="menu-nick" class="netbox__nick" maxlength="16" spellcheck="false" autocomplete="off" placeholder="xXx_n00b_xXx" />
+            </label>
+            <div id="menu-room" class="netbox__room"></div>
+          </div>
+
           <div class="columns">
             <section>
               <h2>~ controlz ~</h2>
@@ -57,9 +68,13 @@
                 <tr><td>WASD</td><td>move</td></tr>
                 <tr><td>MOUSE</td><td>look</td></tr>
                 <tr><td>LMB</td><td>fire</td></tr>
-                <tr><td>SPACE</td><td>jump (hold = bhop)</td></tr>
+                <tr><td>SPACE</td><td>jump · tap right on landing = bhop</td></tr>
+                <tr><td>W + MOUSE</td><td>steer in air</td></tr>
+                <tr><td>SHIFT / C</td><td>crouch · on the run = slide</td></tr>
+                <tr><td>SPACE at a wall</td><td>walljump · right on impact = speed boost · 3 per jump</td></tr>
+                <tr><td>SPACE on pad</td><td>super jump</td></tr>
                 <tr><td>1-4 / WHEEL</td><td>switch bazooka</td></tr>
-                <tr><td>R</td><td>respawn</td></tr>
+                <tr><td>R</td><td>respawn (sandbox)</td></tr>
                 <tr><td>ESC</td><td>back 2 menu</td></tr>
               </table>
             </section>

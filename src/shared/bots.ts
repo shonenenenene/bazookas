@@ -16,6 +16,7 @@ export function updateBotCmd(p: Player, time: number): void {
   cmd.forward = 0;
   cmd.right = 0;
   cmd.jump = false;
+  cmd.crouch = false;
   cmd.fire = false;
 
   switch (p.bot) {
@@ -25,8 +26,9 @@ export function updateBotCmd(p: Player, time: number): void {
       break;
     case 'bhop':
       cmd.forward = 1;
-      cmd.jump = true;
-      cmd.yaw = p.spawn.yaw + time * 1.1; // плавно поворачивает — получается круг
+      // Удержание не прыгает — «тапаем» пробел каждый второй тик, так приземление не пропустим
+      cmd.jump = Math.round(time * 60) % 2 === 0;
+      cmd.yaw = (p.spawn?.yaw ?? 0) + time * 1.1; // плавно поворачивает — получается круг
       break;
   }
 }

@@ -79,6 +79,29 @@ body {
   height: 2px;
 }
 
+/* Отскоки от стены: ромбики под прицелом, залитые — сколько осталось */
+.walljumps {
+  position: absolute;
+  left: 50%;
+  top: calc(50% + 22px);
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+.walljumps[hidden] {
+  display: none;
+}
+.walljumps span {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin: 0 3px;
+  transform: rotate(45deg);
+  border: 1px solid var(--magenta);
+}
+.walljumps span.on {
+  background: var(--magenta);
+}
+
 .speedo {
   position: absolute;
   left: 50%;
@@ -292,6 +315,48 @@ body {
   50% {
     visibility: hidden;
   }
+}
+
+/* Сеть: ник и комната */
+.netbox {
+  margin: -6px 0 14px;
+  text-align: center;
+  font-size: 19px;
+  cursor: default;
+}
+.netbox__nick {
+  width: 190px;
+  margin-left: 4px;
+  padding: 0 6px;
+  font: 20px var(--font-term);
+  color: var(--toxic);
+  background: #000;
+  border: 2px inset #666;
+  outline: none;
+  user-select: text;
+}
+.netbox__nick:disabled {
+  color: var(--muted);
+}
+.netbox__room {
+  margin-top: 4px;
+  color: var(--muted);
+}
+.netbox__room b {
+  font-weight: normal;
+  color: var(--magenta);
+}
+/* Кнопки — подчёркнутые ссылки, как на сайтах 2003 года */
+.netbox button {
+  font: inherit;
+  color: var(--toxic);
+  background: none;
+  border: none;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.netbox__status {
+  color: var(--bone);
 }
 
 /* Две колонки: управление и арсенал (на узком экране — друг под другом) */

@@ -25,6 +25,7 @@ export class Input {
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
     window.addEventListener('keydown', (e) => {
+      if (e.target instanceof HTMLInputElement) return; // печатают ник в меню — это не управление
       this.keys.add(e.code);
       if (e.code === 'Space') e.preventDefault(); // чтобы страница не прокручивалась
       // Цифры 1–9 — выбор базуки
@@ -93,6 +94,8 @@ export class Input {
     cmd.forward = active ? (k.has('KeyW') ? 1 : 0) - (k.has('KeyS') ? 1 : 0) : 0;
     cmd.right = active ? (k.has('KeyD') ? 1 : 0) - (k.has('KeyA') ? 1 : 0) : 0;
     cmd.jump = active && k.has('Space');
+    // Присед — Shift или C. Не Ctrl: Ctrl+W браузер не отдаёт игре и просто закрывает вкладку
+    cmd.crouch = active && (k.has('ShiftLeft') || k.has('ShiftRight') || k.has('KeyC'));
     cmd.fire = active && this.firing;
     cmd.weapon = this.weapon;
     cmd.yaw = this.yaw;

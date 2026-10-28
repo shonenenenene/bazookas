@@ -1,3 +1,5 @@
+import { MOVE } from '../../shared/config';
+import type { PlayerState } from '../../shared/player';
 import { WEAPONS } from '../../shared/weapons';
 
 /**
@@ -20,7 +22,9 @@ export class Hud {
   private deathEl = byId('hud-death');
   private hurtEl = byId('hud-hurt');
   private crosshairEl = byId('hud-crosshair');
+  private wallJumpsEl = byId('hud-walljumps');
 
+  private shownWallJumps = -1; // −1 — ромбики спрятаны
   private shownHealth = -1;
   private shownWeapon = -1;
   private topSpeed = 0;
@@ -35,10 +39,24 @@ export class Hud {
       slot.textContent = String(i + 1);
       this.slotsEl.append(slot);
     });
+    for (let i = 0; i < MOVE.wallJumpsPerAir; i++) this.wallJumpsEl.append(document.createElement('span'));
   }
 
-  /** Спидометр и отладка: каждый кадр копим, раз в 0.1 с пишем в DOM. */
-  update(frameDt: number, speed: number, drawCalls: number): void {
+  /**
+   * Ромбики под прицелом: сколько отскоков от стены осталось до приземления. Видны в полёте, когда стену
+   * уже коснулись или от неё отскочили. Звать каждый тик: DOM трогаем, только когда число поменялось.
+   */
+  wallJumps(ps: PlayerState): void {
+    const shown = !ps.onGround && (ps.wallTouch || ps.wallJumps > 0);
+    const left = shown ? MOVE.wallJumpsPerAir - ps.wallJumps : -1;
+    if (left === this.shownWallJumps) return;
+    this.shownWallJumps = left;
+    this.wallJumpsEl.hidden = !shown;
+    [...this.wallJumpsEl.children].forEach((el, i) => el.classList.toggle('on', i < left));
+  }
+
+  /** Спидометр и отладка: каждый кадр копим, раз в 0.1 с пишем в DOM. ping — null в песочнице. */
+  update(frameDt: number, speed: number, drawCalls: number, ping: number | null): void {
     this.topSpeed = Math.max(this.topSpeed, speed);
     this.frames++;
     this.elapsed += frameDt;
@@ -49,7 +67,8 @@ export class Hud {
     this.topEl.textContent = String(Math.round(this.topSpeed));
     const fps = Math.round(this.frames / this.elapsed);
     const worstMs = (this.worstFrame * 1000).toFixed(1);
-    this.debugEl.textContent = `fps ${fps} · worst ${worstMs}ms · draw ${drawCalls}`;
+    const net = ping === null ? '' : ` · ping ${Math.round(ping)}`;
+    this.debugEl.textContent = `fps ${fps} · worst ${worstMs}ms · draw ${drawCalls}${net}`;
 
     this.frames = 0;
     this.elapsed = 0;

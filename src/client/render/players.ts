@@ -1,5 +1,6 @@
-import { Color, InstancedMesh, Matrix4, MeshBasicMaterial } from 'three';
+import { Color, InstancedMesh, Matrix4, MeshBasicMaterial, Vector3 } from 'three';
 import { boxBrush } from '../../shared/collision/brush';
+import { PLAYER } from '../../shared/config';
 import { lerp, vec3 } from '../../shared/math';
 import type { World } from '../../shared/world';
 import { buildBrushGeometry } from './mapMesh';
@@ -11,6 +12,8 @@ import { buildBrushGeometry } from './mapMesh';
 const TINTS = [0xff1aa8, 0x39ff14, 0xffe14a, 0x00e5ff, 0xff7a1a, 0xb388ff];
 /** Сколько секунд длится белая вспышка при попадании */
 const FLASH_TIME = 0.12;
+/** Присевший — та же модель, сжатая по высоте до коробки приседа */
+const CROUCH_SCALE = new Vector3(1, PLAYER.crouchHalfExtents.y / PLAYER.halfExtents.y, 1);
 
 export class PlayerMeshes {
   readonly mesh: InstancedMesh;
@@ -50,6 +53,7 @@ export class PlayerMeshes {
       if (p.dead || p.id === skipId || n >= this.mesh.instanceMatrix.count) continue;
       lerp(this.pos, p.prevOrigin, p.state.origin, alpha);
       this.matrix.makeRotationY(p.cmd.yaw);
+      if (p.state.crouched) this.matrix.scale(CROUCH_SCALE);
       this.matrix.setPosition(this.pos.x, this.pos.y, this.pos.z);
       this.mesh.setMatrixAt(n, this.matrix);
 

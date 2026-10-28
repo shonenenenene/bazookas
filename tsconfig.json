@@ -1,4 +1,5 @@
 {
+  // Браузерная часть: клиент + общий код. Сервер и автопроверки — в tsconfig.node.json
   "compilerOptions": {
     "target": "ES2022",
     "module": "ESNext",
@@ -14,5 +15,5 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src", "tests", "vite.config.ts"]
+  "include": ["src/client", "src/shared"]
 }

@@ -1,4 +1,4 @@
-import { Group, Mesh, MeshBasicMaterial, Scene } from 'three';
+import { Group, Mesh, MeshBasicMaterial, Scene, type Vector3 } from 'three';
 import { boxBrush } from '../../shared/collision/brush';
 import { vec3 } from '../../shared/math';
 import { buildBrushGeometry } from './mapMesh';
@@ -46,6 +46,14 @@ const MODELS: Box[][] = [
   ],
 ];
 
+/** Конец ствола каждой модели (x, y, z) — оттуда на экране вылетает ракета */
+const MUZZLES: [number, number, number][] = [
+  [0, 0, -58],
+  [0, 0, -46],
+  [0, 0, -78],
+  [0, 0, -50],
+];
+
 /** Где базука относительно глаз: правее и ниже, задний конец уходит за край экрана */
 const REST = { x: 15, y: -12, z: -4 };
 
@@ -76,6 +84,12 @@ export class Viewmodel {
     this.recoil = 1;
   }
 
+  /** Конец ствола в координатах камеры базуки (с учётом покачивания и отдачи). */
+  muzzle(out: Vector3): Vector3 {
+    const [x, y, z] = MUZZLES[Math.max(this.shown, 0)] ?? MUZZLES[0];
+    return this.holder.localToWorld(out.set(x, y, z));
+  }
+
   update(dt: number, weapon: number, speed: number, onGround: boolean, dead: boolean): void {
     const index = weapon < this.models.length ? weapon : 0;
     if (index !== this.shown) {
@@ -101,5 +115,6 @@ export class Viewmodel {
       REST.z + this.recoil * 8, // отдача назад
     );
     this.holder.rotation.x = this.recoil * 0.25; // и задираем ствол
+    this.holder.updateMatrixWorld(); // для muzzle() — до отрисовки
   }
 }

@@ -57,6 +57,14 @@ export function lengthXZ(a: Vec3): number {
   return Math.sqrt(a.x * a.x + a.z * a.z);
 }
 
+/** Квадрат расстояния между точками (без корня — быстрее для сравнений). */
+export function distSq(a: Vec3, b: Vec3): number {
+  const dx = a.x - b.x;
+  const dy = a.y - b.y;
+  const dz = a.z - b.z;
+  return dx * dx + dy * dy + dz * dz;
+}
+
 /** Квадрат горизонтального расстояния между точками (без корня — быстрее для сравнений). */
 export function distSqXZ(a: Vec3, b: Vec3): number {
   const dx = a.x - b.x;

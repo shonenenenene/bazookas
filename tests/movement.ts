@@ -1,8 +1,8 @@
-// Проверки движения: бег, трение, прыжок, стены, ступеньки, рампы, разгон стрейфами, серф.
-// Гоняем физику без браузера на тестовой арене.
+// Проверки движения: бег, трение, прыжок, стены, ступеньки, рампы, банни-хоп (тайминг нажатия, удержание),
+// разгон стрейфами, серф. Гоняем физику без браузера на тестовой арене.
 
-import { brushPolygons } from '../src/shared/collision/brush';
-import { TICK_DT } from '../src/shared/config';
+import { boxBrush, brushPolygons } from '../src/shared/collision/brush';
+import { MOVE, PLAYER, TICK_DT } from '../src/shared/config';
 import { testMap } from '../src/shared/maps/testMap';
 import { cross, dot, lengthXZ, set, vec3 } from '../src/shared/math';
 import { playerMove } from '../src/shared/movement';
@@ -81,6 +81,25 @@ console.log('── движение ──');
   run(ps, cmd, 90);
   check('stairs', ps.origin.y > 155 && ps.origin.x < -780, `x=${round(ps.origin.x)} y=${round(ps.origin.y)}`);
 }
+
+// Лестница туда и обратно: каждая ступенька сообщается (по ним сглаживается камера),
+// а вниз бежим, не отрываясь от пола
+{
+  const { ps, cmd } = fresh(-440, -320, Math.PI / 2);
+  cmd.forward = 1;
+  let ups = 0;
+  for (let i = 0; i < 90; i++) if (playerMove(ps, cmd, brushes, TICK_DT) > 2) ups++;
+  check('stairs steps', ups === 8, `steps up=${ups}`);
+
+  cmd.yaw = -Math.PI / 2;
+  let downs = 0;
+  let airTicks = 0;
+  for (let i = 0; i < 120; i++) {
+    if (playerMove(ps, cmd, brushes, TICK_DT) < -2) downs++;
+    if (!ps.onGround) airTicks++;
+  }
+  check('stairs down', downs === 8 && airTicks === 0 && ps.origin.y < 30, `steps down=${downs} air ticks=${airTicks}`);
+}
 {
   const { ps, cmd } = fresh(-480, -192, Math.PI / 2);
   cmd.forward = 1;
@@ -94,6 +113,84 @@ console.log('── движение ──');
   check('ramp 45°', ps.origin.y > 219 && ps.origin.x > 780, `x=${round(ps.origin.x)} y=${round(ps.origin.y)}`);
 }
 
+// ─── Банни-хоп: прыжок только на нажатие, удачный хоп — нажал вовремя ───
+
+const flat = [boxBrush(vec3(-1e5, -32, -1e5), vec3(1e5, 0, 1e5), 0)];
+
+/** Идеальный игрок: жмёт пробел в первый же тик на земле (и отпускает в воздухе). */
+const tapOnLanding = (ps: PlayerState, cmd: UserCmd) => (cmd.jump = ps.onGround && !cmd.jump);
+
+/** Разбег по ровному полу и прыжок (пробел — на один тик). */
+function runAndJump(ps: PlayerState, cmd: UserCmd) {
+  cmd.forward = 1;
+  for (let i = 0; i < 60; i++) playerMove(ps, cmd, flat, TICK_DT);
+  cmd.jump = true;
+  playerMove(ps, cmd, flat, TICK_DT);
+  cmd.jump = false;
+}
+
+// По прямой (W + нажатия вовремя): удачные хопы разгоняют, но не выше hopBoostMaxSpeed
+{
+  const { ps, cmd } = fresh(0, 0, 0);
+  cmd.forward = 1;
+  for (let i = 0; i < 60; i++) playerMove(ps, cmd, flat, TICK_DT);
+  let at3s = 0;
+  for (let i = 0; i < 600; i++) {
+    tapOnLanding(ps, cmd);
+    playerMove(ps, cmd, flat, TICK_DT);
+    if (i === 180) at3s = lengthXZ(ps.velocity);
+  }
+  const top = lengthXZ(ps.velocity);
+  check('hop boost', at3s > 400 && Math.abs(top - MOVE.hopBoostMaxSpeed) < 1, `3s=${round(at3s)} 10s=${round(top)}`);
+}
+
+// Зажатый пробел прыгает один раз: после приземления стоим (autoHop выключен)
+{
+  const { ps, cmd } = fresh(0, 0, 0);
+  for (let i = 0; i < 10; i++) playerMove(ps, cmd, flat, TICK_DT); // встали на пол
+  cmd.jump = true;
+  let jumps = 0;
+  let wasGround = true;
+  for (let i = 0; i < 120; i++) {
+    playerMove(ps, cmd, flat, TICK_DT);
+    if (wasGround && !ps.onGround) jumps++;
+    wasGround = ps.onGround;
+  }
+  check('hop: holding = one jump', jumps === 1 && ps.onGround, `jumps in 2s=${jumps}`);
+}
+
+// Нажал чуть раньше приземления (за ~2 тика) и держишь — удачный хоп в первый тик на земле.
+// Нажал поздно (через 8 тиков после приземления) — без бонуса, и трение уже съело скорость
+{
+  const early = fresh(0, 0, 0);
+  runAndJump(early.ps, early.cmd);
+  while (!early.ps.onGround) {
+    // У земли падаем ~4.5 юнита за тик: ниже 9 над полом — жмём (и держим)
+    const height = early.ps.origin.y - (PLAYER.halfExtents.y + 0.125);
+    early.cmd.jump ||= early.ps.velocity.y < 0 && height < 9;
+    playerMove(early.ps, early.cmd, flat, TICK_DT);
+  }
+  const landSpeed = lengthXZ(early.ps.velocity);
+  playerMove(early.ps, early.cmd, flat, TICK_DT); // первый тик на земле — прыжок по запомненному нажатию
+  const earlySpeed = lengthXZ(early.ps.velocity);
+  const earlyOk = !early.ps.onGround && Math.abs(earlySpeed - (landSpeed + MOVE.hopBoost)) < 1;
+
+  const late = fresh(0, 0, 0);
+  runAndJump(late.ps, late.cmd);
+  while (!late.ps.onGround) playerMove(late.ps, late.cmd, flat, TICK_DT);
+  const before = lengthXZ(late.ps.velocity);
+  late.cmd.forward = 0;
+  for (let i = 0; i < 8; i++) playerMove(late.ps, late.cmd, flat, TICK_DT);
+  late.cmd.jump = true;
+  playerMove(late.ps, late.cmd, flat, TICK_DT);
+  const lateSpeed = lengthXZ(late.ps.velocity);
+  check(
+    'hop timing',
+    earlyOk && lateSpeed < before,
+    `early: ${round(landSpeed)} → ${round(earlySpeed)}, late: ${round(before)} → ${round(lateSpeed)}`,
+  );
+}
+
 // Банни-хоп со стрейфом: держим «вправо» перпендикулярно скорости — скорость должна расти выше 320
 {
   const { ps, cmd } = fresh(-700, 900, 0);
@@ -101,9 +198,9 @@ console.log('── движение ──');
   run(ps, cmd, 30);
   cmd.forward = 0;
   cmd.right = 1;
-  cmd.jump = true;
   let top = 0;
   run(ps, cmd, 180, () => {
+    tapOnLanding(ps, cmd);
     const v = ps.velocity;
     const len = lengthXZ(v) || 1;
     cmd.yaw = Math.atan2(v.x / len, v.z / len); // «вправо» = перпендикуляр к скорости, закручиваем влево

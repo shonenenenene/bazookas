@@ -1,12 +1,14 @@
+import { vec3 } from '../shared/math';
 import { type WeaponDef, WEAPONS } from '../shared/weapons';
-import { type GameEvent, type Player, type World, findPlayer } from '../shared/world';
+import { type GameEvent, type Player, type Rocket, type World, findPlayer } from '../shared/world';
 import type { Input } from './input';
 import type { Particles } from './render/particles';
 import type { PlayerMeshes } from './render/players';
+import type { RocketView } from './render/rocketView';
 import type { Viewmodel } from './render/viewmodel';
 import type { Hud } from './ui/hud';
 
-// Реакция клиента на события мира: взрывы, следы ракет, ошмётки, тряска камеры, HUD.
+// Реакция клиента на события мира: взрывы, следы ракет, ошмётки, тряска камеры, HUD, искры над падами.
 // Здесь только «красота»: на правила игры этот файл не влияет.
 
 /** Строки ленты, когда убил не враг. {t} — кто погиб */
@@ -26,10 +28,13 @@ export class Effects {
   private playerMeshes: PlayerMeshes;
   private viewmodel: Viewmodel;
   private input: Input;
+  private rocketView: RocketView;
+  private ticks = 0;
+  private tmp = vec3();
 
   constructor(
     world: World, me: Player, particles: Particles, hud: Hud,
-    playerMeshes: PlayerMeshes, viewmodel: Viewmodel, input: Input,
+    playerMeshes: PlayerMeshes, viewmodel: Viewmodel, input: Input, rocketView: RocketView,
   ) {
     this.world = world;
     this.me = me;
@@ -38,6 +43,7 @@ export class Effects {
     this.playerMeshes = playerMeshes;
     this.viewmodel = viewmodel;
     this.input = input;
+    this.rocketView = rocketView;
   }
 
   /** Разобрать накопившиеся события мира. Вызывать после каждого тика. */
@@ -78,7 +84,7 @@ export class Effects {
 
       case 'spawn':
         if (e.playerId === me.id) {
-          this.input.yaw = me.spawn.yaw;
+          this.input.yaw = e.yaw;
           this.input.pitch = 0;
           this.hud.setDead(false);
           this.hud.resetTop();
@@ -93,14 +99,40 @@ export class Effects {
    * (и слабой видеокарте тяжело закрашивать одни и те же пиксели много раз).
    */
   emitTrails(): void {
-    for (const r of this.world.rockets) {
-      const color = WEAPONS[r.weapon].color;
-      const t = Math.random();
-      const x = r.prevPos.x + (r.pos.x - r.prevPos.x) * t;
-      const y = r.prevPos.y + (r.pos.y - r.prevPos.y) * t;
-      const z = r.prevPos.z + (r.pos.z - r.prevPos.z) * t;
-      this.particles.spawn(x, y, z, rnd(15), 20 + rnd(10), rnd(15), 0.45, 10, color, 0.22); //  дымка
-      this.particles.spawn(x, y, z, rnd(60), rnd(60), rnd(60), 0.15, 4, 0xfff2c0, 0.8); //       искра
+    for (const r of this.world.rockets) this.trail(r);
+    for (const r of this.world.predictedRockets) this.trail(r);
+  }
+
+  private trail(r: Rocket): void {
+    const color = WEAPONS[r.weapon].color;
+    // Своя ракета на экране вылетает из ствола — и след тоже оттуда (см. rocketView.ts)
+    const { x, y, z } = this.rocketView.position(this.tmp, r, Math.random(), r.ownerId === this.me.id);
+    this.particles.spawn(x, y, z, rnd(15), 20 + rnd(10), rnd(15), 0.45, 10, color, 0.22); //  дымка
+    this.particles.spawn(x, y, z, rnd(60), rnd(60), rnd(60), 0.15, 4, 0xfff2c0, 0.8); //       искра
+  }
+
+  /**
+   * Искры над джамп-падами и пузырьки над бустерами — чтобы их было видно издалека.
+   * Пузырьки летят на всей высоте зоны: видно, что бустер подхватит и в низком прыжке. Вызывать после каждого тика.
+   */
+  emitTriggerSparks(): void {
+    if (++this.ticks % 3 !== 0) return; // хватит и 20–40 частиц в секунду на зону
+    for (const t of this.world.map.triggers) {
+      const x = t.min.x + Math.random() * (t.max.x - t.min.x);
+      const z = t.min.z + Math.random() * (t.max.z - t.min.z);
+      if (t.type === 'jumppad') {
+        this.particles.spawn(x, t.min.y, z, 0, 160 + rnd(40), 0, 0.7, 6, 0x39ff14, 0.5);
+        continue;
+      }
+      // Пузырьков — по одному на каждые ~130 юнитов полосы (полоса длинная, иначе их не видно)
+      const area = (t.max.x - t.min.x) * (t.max.z - t.min.z);
+      const count = Math.min(10, Math.ceil(area / 10000));
+      for (let i = 0; i < count; i++) {
+        const y = t.min.y + 3 + Math.random() * (t.max.y - t.min.y - 3);
+        const bx = t.min.x + Math.random() * (t.max.x - t.min.x);
+        const bz = t.min.z + Math.random() * (t.max.z - t.min.z);
+        this.particles.spawn(bx, y, bz, t.dir.x * 350, 8 + rnd(8), t.dir.z * 350, 0.6, 6 + Math.random() * 4, 0xff1aa8, 0.7);
+      }
     }
   }
 

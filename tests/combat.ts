@@ -55,7 +55,7 @@ for (const [pitch, expectHit] of [[0, false], [4.3, true]] as const) {
   const ex = all.find((e) => e.type === 'explode');
   const killed = all.some((e) => e.type === 'kill');
   const exZ = ex?.type === 'explode' ? ex.pos.z : NaN;
-  const ok = expectHit ? killed && dummy.dead : !killed && exZ > dummy.spawn.feet.z + 20;
+  const ok = expectHit ? killed && dummy.dead : !killed && exZ > dummy.spawn!.feet.z + 20;
   check(`ballistics pitch=${pitch}°`, ok, `explode z=${round(exZ)} dummyHP=${round(dummy.health)}`);
 }
 
