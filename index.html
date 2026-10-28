@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>The Bazookas</title>
+  </head>
+  <body>
+    <!-- Игровой холст: рисуется в низком разрешении и растягивается на весь экран -->
+    <canvas id="game"></canvas>
+
+    <!-- HUD поверх игры (обновляется из src/client/ui/hud.ts) -->
+    <div class="hud">
+      <div id="hud-hurt" class="hurt"></div>
+      <div id="hud-crosshair" class="crosshair"></div>
+      <div id="hud-debug" class="hud__debug"></div>
+      <div id="hud-feed" class="feed"></div>
+
+      <div id="hud-health-box" class="health">
+        <span class="health__icon">✝</span><span id="hud-health">100</span>
+      </div>
+
+      <div class="speedo">
+        <span id="hud-speed">0</span><small>u/s</small>
+        <div class="speedo__top">top <span id="hud-top">0</span></div>
+      </div>
+
+      <div class="weapon">
+        <div id="hud-weapon" class="weapon__name"></div>
+        <div class="weapon__reload"><div id="hud-reload"></div></div>
+        <div id="hud-slots" class="weapon__slots"></div>
+      </div>
+
+      <div id="hud-death" class="death" hidden>
+        <div class="death__title">u got bazooka'd</div>
+        <div class="death__sub">respawning... git gud</div>
+      </div>
+    </div>
+
+    <!-- Стартовый экран / пауза. Все тексты меню — здесь (список базук — из weapons.ts) -->
+    <div id="menu" class="menu">
+      <div class="window">
+        <div class="window__titlebar">
+          <span>bazookas.exe</span>
+          <span class="window__buttons">_ □ ✕</span>
+        </div>
+        <div class="window__body">
+          <h1 class="logo">The Bazookas</h1>
+          <p class="tagline">~*~ xXx rOcKeTs OnLy xXx ~*~</p>
+
+          <button class="play">[ CLiCK 2 PLAY ]</button>
+
+          <div class="columns">
+            <section>
+              <h2>~ controlz ~</h2>
+              <table class="controls">
+                <tr><td>WASD</td><td>move</td></tr>
+                <tr><td>MOUSE</td><td>look</td></tr>
+                <tr><td>LMB</td><td>fire</td></tr>
+                <tr><td>SPACE</td><td>jump (hold = bhop)</td></tr>
+                <tr><td>1-4 / WHEEL</td><td>switch bazooka</td></tr>
+                <tr><td>R</td><td>respawn</td></tr>
+                <tr><td>ESC</td><td>back 2 menu</td></tr>
+              </table>
+            </section>
+            <section>
+              <h2>~ arsenal ~</h2>
+              <ul id="menu-arsenal" class="arsenal"></ul>
+              <p class="tip">pro tip: shoot ur feet + jump = rocket jump</p>
+            </section>
+          </div>
+
+          <div class="marquee">
+            <span>*** NO CAMPING *** ROCKETS ONLY *** SPLASH DAMAGE IS LOVE *** SIGN MY GUESTBOOK *** UNDER CONSTRUCTION *** STRAFE OR DIE ***</span>
+          </div>
+
+          <p class="footer">
+            best viewed in 800×600 · you are visitor #<span class="counter">000666</span> · webring of doom
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/client/main.ts"></script>
+  </body>
+</html>
