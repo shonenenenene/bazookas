@@ -2,6 +2,8 @@
   "name": "the-bazookas",
   "private": true,
   "version": "0.0.1",
+  "license": "AGPL-3.0-or-later",
+  "repository": "github:shonenenenene/bazooka",
   "type": "module",
   "scripts": {
     "dev": "vite",

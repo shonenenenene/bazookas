@@ -439,6 +439,9 @@ body {
   font-size: 16px;
   color: var(--muted);
 }
+.footer a {
+  color: var(--toxic);
+}
 .counter {
   padding: 0 4px;
   letter-spacing: 2px;

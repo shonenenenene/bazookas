@@ -2,3 +2,6 @@ node_modules/
 dist/
 *.log
 .DS_Store
+
+# Личные заметки и контекст для Claude — только локально, в репозиторий не попадают
+CLAUDE.md

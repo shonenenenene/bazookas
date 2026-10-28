@@ -32,7 +32,8 @@ const ROOM_CHARS = 'abcdefghjkmnpqrstuvwxyz23456789';
 export function setupMenu(input: Input, options: MenuOptions): Menu {
   const menu = byId('menu');
   menu.addEventListener('click', (e) => {
-    if ((e.target as HTMLElement).closest('.netbox')) return; // поле ника и кнопки сети игру не запускают
+    // Поле ника, кнопки сети и ссылки (исходники) игру не запускают
+    if ((e.target as HTMLElement).closest('.netbox, a')) return;
     options.onPlay();
     input.lockPointer();
   });
