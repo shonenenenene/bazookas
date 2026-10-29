@@ -5,6 +5,7 @@ import './movement';
 import './parkour';
 import './combat';
 import './net';
+import './maps';
 import { finish } from './check';
 
 finish();

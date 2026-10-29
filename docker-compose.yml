@@ -1,0 +1,21 @@
+# Игра за Nginx Proxy Manager. Наружу порт не открываем: NPM ходит к контейнеру по общей docker-сети.
+# PROXY_NETWORK — имя сети, в которой стоит NPM (посмотреть: docker network ls; задать — в файле .env рядом).
+# Запуск / обновление: git pull && docker compose up -d --build
+
+services:
+  bazookas:
+    build: .
+    container_name: bazookas
+    restart: unless-stopped
+    environment:
+      PORT: 8080
+      TRUST_PROXY: 1 # адрес игрока — из X-Forwarded-For (его ставит NPM); для лимита соединений с одного IP
+    expose:
+      - '8080'
+    networks:
+      - proxy
+
+networks:
+  proxy:
+    external: true
+    name: ${PROXY_NETWORK:-npm_default}

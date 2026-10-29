@@ -14,6 +14,15 @@ import type { Reader, Writer } from './binary';
 // Поменял порядок в write — поменяй и в read, иначе сервер и клиент перестанут понимать друг друга.
 // ─────────────────────────────────────────────────────────────
 
+/**
+ * Версия протокола. Поменял сообщения (write/read) — увеличь: клиент старой версии (вкладка, открытая до деплоя)
+ * получит отказ «new version» и сам перезагрузится
+ */
+export const PROTOCOL_VERSION = 2;
+
+/** Коды закрытия соединения от сервера (клиент по ним понимает, что делать) */
+export const CLOSE = { FULL: 4001, VERSION: 4002, LIMIT: 4003 } as const;
+
 export const MSG = {
   CMD: 1,
   PING: 2,
@@ -22,7 +31,20 @@ export const MSG = {
   LEAVE: 12,
   SNAPSHOT: 13,
   PONG: 14,
+  /** Матч кончился — комната переходит на другую карту: клиенты перезагружаются на неё */
+  MAP: 15,
 } as const;
+
+/** Состояние матча (FFA): идёт или пауза с итогами; сколько осталось; до скольких фрагов */
+export interface MatchInfo {
+  phase: 'playing' | 'intermission';
+  /** Секунд до конца матча (playing) или до следующего (intermission) */
+  timeLeft: number;
+  fragLimit: number;
+}
+
+/** Для песочницы и проверок: матча нет */
+export const NO_MATCH: MatchInfo = { phase: 'playing', timeLeft: 0, fragLimit: 0 };
 
 const EVENT = { spawn: 1, fire: 2, explode: 3, damage: 4, kill: 5 } as const;
 
@@ -101,10 +123,11 @@ export function readPlayerInfo(r: Reader): PlayerInfo {
   return { id: r.u32(), name: r.str(), bot: r.bool() };
 }
 
-/** Приветствие новичку: его id и все, кто уже в комнате (включая манекенов). */
+/** Приветствие новичку: его id, карта комнаты и все, кто уже в комнате (включая манекенов). */
 export function writeWelcome(w: Writer, world: World, you: Player): void {
   w.u8(MSG.WELCOME);
   w.u32(you.id);
+  w.str(world.map.name);
   w.u8(world.players.length);
   for (const p of world.players) writePlayerInfo(w, p);
 }
@@ -117,6 +140,12 @@ export function writeJoin(w: Writer, p: Player): void {
 export function writeLeave(w: Writer, id: number): void {
   w.u8(MSG.LEAVE);
   w.u32(id);
+}
+
+/** Комната переходит на карту name (после матча). */
+export function writeMapChange(w: Writer, name: string): void {
+  w.u8(MSG.MAP);
+  w.str(name);
 }
 
 // ─── Снимок мира ────────────────────────────────────────────
@@ -142,14 +171,18 @@ export interface NetMe {
   wallJumps: number;
   wallNormal: Vec3;
   wallCooldown: number;
+  surfTime: number;
   cooldown: number;
+  bloom: number;
+  fireDown: boolean;
+  remoteSerial: number;
   weapon: number;
   rocketsFired: number;
   health: number;
   dead: boolean;
 }
 
-/** Другой игрок — только то, что нужно, чтобы его нарисовать. */
+/** Другой игрок — только то, что нужно, чтобы его нарисовать (и счёт для таблицы). */
 export interface NetPlayer {
   id: number;
   dead: boolean;
@@ -158,6 +191,8 @@ export interface NetPlayer {
   pos: Vec3;
   yaw: number;
   pitch: number;
+  frags: number;
+  deaths: number;
 }
 
 export interface NetRocket {
@@ -178,6 +213,7 @@ export interface Snapshot {
   tick: number;
   /** Последняя команда этого клиента, которую сервер уже применил */
   ack: number;
+  match: MatchInfo;
   me: NetMe;
   /** Массивы переиспользуются и бывают длиннее, чем нужно, — читать только первые playerCount / rocketCount */
   players: NetPlayer[];
@@ -192,11 +228,12 @@ export function createSnapshot(): Snapshot {
   return {
     tick: 0,
     ack: 0,
+    match: { phase: 'playing', timeLeft: 0, fragLimit: 0 },
     me: {
       origin: vec3(), velocity: vec3(), onGround: false, jumpDown: false, jumpBuffer: 0, knockbackTime: 0, groundTicks: 0,
       crouched: false, sliding: false, slideCooldown: 0,
-      wallTouch: false, wallTime: 0, wallSpeed: 0, wallJumps: 0, wallNormal: vec3(), wallCooldown: 0,
-      cooldown: 0, weapon: 0, rocketsFired: 0, health: 0, dead: false,
+      wallTouch: false, wallTime: 0, wallSpeed: 0, wallJumps: 0, wallNormal: vec3(), wallCooldown: 0, surfTime: 0,
+      cooldown: 0, bloom: 0, fireDown: false, remoteSerial: -1, weapon: 0, rocketsFired: 0, health: 0, dead: false,
     },
     players: [],
     playerCount: 0,
@@ -206,10 +243,15 @@ export function createSnapshot(): Snapshot {
   };
 }
 
-export function writeSnapshot(w: Writer, world: World, me: Player, ack: number, events: readonly TimedEvent[]): void {
+export function writeSnapshot(
+  w: Writer, world: World, me: Player, ack: number, events: readonly TimedEvent[], match: MatchInfo = NO_MATCH,
+): void {
   w.u8(MSG.SNAPSHOT);
   w.u32(world.tick);
   w.u32(ack);
+  w.u8(match.phase === 'intermission' ? 1 : 0);
+  w.f32(match.timeLeft);
+  w.u8(match.fragLimit);
 
   // Свой игрок — полностью и в float64: клиент продолжит считать с этого места, числа должны совпасть до бита
   const s = me.state;
@@ -227,10 +269,13 @@ export function writeSnapshot(w: Writer, world: World, me: Player, ack: number, 
   w.f64(s.wallNormal.y);
   w.f64(s.wallNormal.z);
   w.f64(s.wallCooldown);
+  w.f64(s.surfTime);
   w.f64(me.cooldown);
+  w.f64(me.bloom);
+  w.u32(me.remoteSerial + 1); // −1 (нет снаряда) → 0
   w.u8(
     (s.onGround ? 1 : 0) | (s.jumpDown ? 2 : 0) | (me.dead ? 4 : 0) |
-    (s.crouched ? 8 : 0) | (s.sliding ? 16 : 0) | (s.wallTouch ? 32 : 0),
+    (s.crouched ? 8 : 0) | (s.sliding ? 16 : 0) | (s.wallTouch ? 32 : 0) | (me.fireDown ? 64 : 0),
   );
   w.u8(s.groundTicks);
   w.u8(s.wallJumps);
@@ -248,6 +293,8 @@ export function writeSnapshot(w: Writer, world: World, me: Player, ack: number, 
     writeVec(w, p.state.origin);
     w.f32(p.cmd.yaw);
     w.f32(p.cmd.pitch);
+    w.i16(p.frags);
+    w.u16(p.deaths);
   }
 
   w.u16(world.rockets.length);
@@ -269,6 +316,9 @@ export function writeSnapshot(w: Writer, world: World, me: Player, ack: number, 
 export function readSnapshot(r: Reader, out: Snapshot): void {
   out.tick = r.u32();
   out.ack = r.u32();
+  out.match.phase = r.u8() === 1 ? 'intermission' : 'playing';
+  out.match.timeLeft = r.f32();
+  out.match.fragLimit = r.u8();
 
   const me = out.me;
   me.origin.x = r.f64();
@@ -285,7 +335,10 @@ export function readSnapshot(r: Reader, out: Snapshot): void {
   me.wallNormal.y = r.f64();
   me.wallNormal.z = r.f64();
   me.wallCooldown = r.f64();
+  me.surfTime = r.f64();
   me.cooldown = r.f64();
+  me.bloom = r.f64();
+  me.remoteSerial = r.u32() - 1;
   const flags = r.u8();
   me.onGround = (flags & 1) !== 0;
   me.jumpDown = (flags & 2) !== 0;
@@ -293,6 +346,7 @@ export function readSnapshot(r: Reader, out: Snapshot): void {
   me.crouched = (flags & 8) !== 0;
   me.sliding = (flags & 16) !== 0;
   me.wallTouch = (flags & 32) !== 0;
+  me.fireDown = (flags & 64) !== 0;
   me.groundTicks = r.u8();
   me.wallJumps = r.u8();
   me.jumpBuffer = r.u8();
@@ -302,7 +356,7 @@ export function readSnapshot(r: Reader, out: Snapshot): void {
 
   out.playerCount = r.u8();
   for (let i = 0; i < out.playerCount; i++) {
-    const p = (out.players[i] ??= { id: 0, dead: false, crouched: false, weapon: 0, pos: vec3(), yaw: 0, pitch: 0 });
+    const p = (out.players[i] ??= { id: 0, dead: false, crouched: false, weapon: 0, pos: vec3(), yaw: 0, pitch: 0, frags: 0, deaths: 0 });
     p.id = r.u32();
     const pflags = r.u8();
     p.dead = (pflags & 1) !== 0;
@@ -311,6 +365,8 @@ export function readSnapshot(r: Reader, out: Snapshot): void {
     readVec(r, p.pos);
     p.yaw = r.f32();
     p.pitch = r.f32();
+    p.frags = r.i16();
+    p.deaths = r.u16();
   }
 
   out.rocketCount = r.u16();
@@ -350,12 +406,18 @@ function writeEvent(w: Writer, e: GameEvent): void {
       w.u8(e.weapon);
       w.u32(e.ownerId);
       w.u32(e.serial);
+      // Направление — грубо, по байту на ось (−127…127): только чтобы воткнуть нож под нужным углом
+      w.i8(Math.round(e.dir.x * 127));
+      w.i8(Math.round(e.dir.y * 127));
+      w.i8(Math.round(e.dir.z * 127));
+      w.u8((e.hitPlayer ? 1 : 0) | (e.expired ? 2 : 0));
       break;
     case 'damage':
       w.u8(EVENT.damage);
       w.u32(e.targetId);
       w.i32(e.attackerId);
       w.f32(e.amount);
+      w.bool(e.headshot);
       break;
     case 'kill':
       w.u8(EVENT.kill);
@@ -363,6 +425,7 @@ function writeEvent(w: Writer, e: GameEvent): void {
       w.i32(e.attackerId);
       w.i8(e.weapon);
       writeVec(w, e.pos);
+      w.bool(e.headshot);
       break;
   }
 }
@@ -374,12 +437,19 @@ function readEvent(r: Reader): GameEvent {
       return { type: 'spawn', playerId: r.u32(), yaw: r.f32() };
     case EVENT.fire:
       return { type: 'fire', playerId: r.u32(), weapon: r.u8() };
-    case EVENT.explode:
-      return { type: 'explode', pos: readVec(r, vec3()), weapon: r.u8(), ownerId: r.u32(), serial: r.u32() };
+    case EVENT.explode: {
+      const pos = readVec(r, vec3());
+      const weapon = r.u8();
+      const ownerId = r.u32();
+      const serial = r.u32();
+      const dir = vec3(r.i8() / 127, r.i8() / 127, r.i8() / 127);
+      const flags = r.u8();
+      return { type: 'explode', pos, weapon, ownerId, serial, dir, hitPlayer: (flags & 1) !== 0, expired: (flags & 2) !== 0 };
+    }
     case EVENT.damage:
-      return { type: 'damage', targetId: r.u32(), attackerId: r.i32(), amount: r.f32() };
+      return { type: 'damage', targetId: r.u32(), attackerId: r.i32(), amount: r.f32(), headshot: r.bool() };
     case EVENT.kill:
-      return { type: 'kill', targetId: r.u32(), attackerId: r.i32(), weapon: r.i8(), pos: readVec(r, vec3()) };
+      return { type: 'kill', targetId: r.u32(), attackerId: r.i32(), weapon: r.i8(), pos: readVec(r, vec3()), headshot: r.bool() };
     default:
       throw new Error(`Неизвестное событие ${type}`);
   }

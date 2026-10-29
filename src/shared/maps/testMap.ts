@@ -1,30 +1,16 @@
 import { type Brush, type RampRise, boxBrush, rampBrush } from '../collision/brush';
 import { vec3 } from '../math';
+import { MATERIALS as COLOR } from './materials';
 import { booster, jumpPad } from './triggers';
 import type { GameMap } from './types';
 
 // ─────────────────────────────────────────────────────────────
 // Тестовая арена — песочница для движения: ступеньки, рампы, серф, ящики.
-// Позже карты будем делать в TrenchBroom, а эта останется полигоном.
+// Живёт в коде: на ней гоняются автопроверки. Настоящие карты — в assets/maps/*.map (TrenchBroom).
 //
 // Пол на y = 0, арена 2048×2048 (от −1024 до 1024 по X и Z).
 // Игрок появляется на юге (z ≈ 600) и смотрит на север (−Z).
 // ─────────────────────────────────────────────────────────────
-
-/** Цвета блоков. Текстура и «запечённый» свет затемняют их, поэтому берём посветлее. */
-const COLOR = {
-  floor: 0x4a4058, //    пыльный фиолетовый камень
-  wall: 0x3a3446, //     тёмные стены
-  stairs: 0x6a6276,
-  ramp: 0x5a3d7a, //     фиолетовые рампы
-  platform: 0x3e3550,
-  crate: 0x8a1c2b, //    кроваво-красные ящики
-  accent: 0xc0207a, //   маджента
-  surf: 0x1f8a6e, //     ядовитый бирюзовый серф
-  pad: 0x39ff14, //      джамп-пады — кислотные
-  booster: 0xff1aa8, //  бустер — маджента
-  wallrun: 0x5b2a6e, //  стены для бега
-};
 
 /** Блок по двум углам: (x1, y1, z1) — минимальный, (x2, y2, z2) — максимальный. */
 function box(x1: number, y1: number, z1: number, x2: number, y2: number, z2: number, color: number): Brush {
@@ -95,6 +81,8 @@ const brushes: Brush[] = [
 
 export const testMap: GameMap = {
   name: 'test_arena',
+  description: 'the og sandbox. stairs, ramps, a surf ridge, walljump alley and dummies 2 shoot',
+  preview: { eye: vec3(880, 420, 880), yaw: Math.PI / 4, pitch: -0.32 },
   brushes,
   // Первая — для песочницы. В сети каждый раз выбирается самая дальняя от живых игроков.
   // yaw: 0 — смотрит на север (−Z), π/2 — на запад, −π/2 — на восток

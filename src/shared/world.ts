@@ -1,11 +1,11 @@
 import { type BotBehavior, updateBotCmd } from './bots';
-import { fireWeapon, killPlayer, updateRockets } from './combat';
+import { detonateRemote, fireWeapon, killPlayer, updateRockets } from './combat';
 import { COMBAT } from './config';
 import type { GameMap, SpawnPoint } from './maps/types';
 import { type Vec3, copy, distSqXZ, vec3 } from './math';
 import { playerMove } from './movement';
-import { type PlayerState, type UserCmd, createPlayerState, createUserCmd, spawnPlayer } from './player';
-import { WEAPONS } from './weapons';
+import { type PlayerState, type UserCmd, createPlayerState, createUserCmd, playerHalf, spawnPlayer } from './player';
+import { WEAPON_COUNT, WEAPONS } from './weapons';
 
 // ─────────────────────────────────────────────────────────────
 // Мир: все игроки, ракеты и правила одного тика.
@@ -30,10 +30,21 @@ export interface Player {
   cooldown: number;
   /** Сколько ракет выпустил за всё время — отсюда порядковые номера ракет (Rocket.serial) */
   rocketsFired: number;
+  /** Текущий разброс от частой стрельбы, градусы (WeaponDef.bloom*) */
+  bloom: number;
+  /** «Огонь» был зажат в прошлом тике — так ловим именно нажатие (подрыв по кнопке) */
+  fireDown: boolean;
+  /** Номер своего снаряда, который ждёт подрыва по кнопке (WeaponDef.remote); −1 — такого нет */
+  remoteSerial: number;
+  /** Счёт матча: фраги (убил другого игрока +1, сам себя или бездна −1) и смерти. Считает сервер (server/match.ts) */
+  frags: number;
+  deaths: number;
   dead: boolean;
   respawnTimer: number;
   /** Своя точка появления (манекены, игрок в песочнице); null — каждый раз выбирать самую свободную */
   spawn: SpawnPoint | null;
+  /** Последний пройденный чекпоинт (зона на карте) — появляемся на нём; null — не было или пересекли финиш */
+  checkpoint: SpawnPoint | null;
   /** Поведение манекена; null — живой игрок */
   bot: BotBehavior | null;
   /** Команды приходят по сети: сервер сам вызывает playerThink, когда они приходят, а worldTick его не двигает */
@@ -52,6 +63,8 @@ export interface Rocket {
   vel: Vec3;
   /** Сколько секунд летит */
   age: number;
+  /** Сколько ещё отскоков от стен осталось (Bouncy Castle); 0 — взорвётся при касании */
+  bounces: number;
 }
 
 /**
@@ -62,10 +75,15 @@ export type GameEvent =
   /** yaw — куда смотрит появившийся (клиент разворачивает по нему камеру) */
   | { type: 'spawn'; playerId: number; yaw: number }
   | { type: 'fire'; playerId: number; weapon: number }
-  | { type: 'explode'; pos: Vec3; weapon: number; ownerId: number; serial: number }
-  | { type: 'damage'; targetId: number; attackerId: number; amount: number }
+  /**
+   * dir — куда летел снаряд (длина 1; по нему клиент втыкает нож в стену); hitPlayer — попал в игрока;
+   * expired — кончилось время полёта (взорвался в воздухе)
+   */
+  | { type: 'explode'; pos: Vec3; weapon: number; ownerId: number; serial: number; dir: Vec3; hitPlayer: boolean; expired: boolean }
+  /** headshot — прямое попадание в голову */
+  | { type: 'damage'; targetId: number; attackerId: number; amount: number; headshot: boolean }
   /** attackerId = −1 — убила бездна; weapon = −1 — не базукой */
-  | { type: 'kill'; targetId: number; attackerId: number; weapon: number; pos: Vec3 };
+  | { type: 'kill'; targetId: number; attackerId: number; weapon: number; pos: Vec3; headshot: boolean };
 
 export interface World {
   map: GameMap;
@@ -126,9 +144,15 @@ export function addPlayer(
     weapon: 0,
     cooldown: 0,
     rocketsFired: 0,
+    bloom: 0,
+    fireDown: false,
+    remoteSerial: -1,
+    frags: 0,
+    deaths: 0,
     dead: false,
     respawnTimer: 0,
     spawn,
+    checkpoint: null,
     bot,
     netControlled: false,
   };
@@ -144,7 +168,7 @@ export function removePlayer(world: World, id: number): void {
 
 /** Вернуть игрока на точку появления с полным здоровьем. */
 export function respawnPlayer(world: World, p: Player): void {
-  const spawn = p.spawn ?? pickSpawn(world, p);
+  const spawn = p.checkpoint ?? p.spawn ?? pickSpawn(world, p);
   spawnPlayer(p.state, spawn);
   copy(p.prevOrigin, p.state.origin); // чтобы не было «пролёта» от места смерти
   p.cmd.yaw = spawn.yaw;
@@ -152,6 +176,7 @@ export function respawnPlayer(world: World, p: Player): void {
   p.health = COMBAT.maxHealth;
   p.dead = false;
   p.cooldown = 0;
+  p.bloom = 0;
   world.events.push({ type: 'spawn', playerId: p.id, yaw: spawn.yaw });
 }
 
@@ -187,14 +212,47 @@ export function playerThink(world: World, p: Player, dt: number): void {
   if (p.dead) return;
 
   // Смена базуки мгновенная: перезарядка общая, поэтому сменой её не обмануть
-  if (p.cmd.weapon >= 0 && p.cmd.weapon < WEAPONS.length) p.weapon = p.cmd.weapon;
+  if (p.cmd.weapon >= 0 && p.cmd.weapon < WEAPON_COUNT) p.weapon = p.cmd.weapon; // осколки (скрытые) не выбрать
 
   p.lastStep = playerMove(p.state, p.cmd, world.map.brushes, dt, world.map.triggers);
 
   p.cooldown = Math.max(0, p.cooldown - dt);
-  if (p.cmd.fire && p.cooldown === 0) fireWeapon(world, p);
+  // Разброс от частой стрельбы уходит, только когда базука уже готова к выстрелу, а ты не стреляешь
+  // (пока жмёшь без пауз — копится, как в CS)
+  if (p.cooldown === 0) p.bloom = Math.max(0, p.bloom - (WEAPONS[p.weapon].bloomRecovery ?? 10) * dt);
+  // Огонь. У базуки с подрывом по кнопке: снаряд летит — нажатие его взрывает; нет снаряда — выстрел (тоже на нажатие)
+  const w = WEAPONS[p.weapon];
+  const pressed = p.cmd.fire && !p.fireDown;
+  p.fireDown = p.cmd.fire;
+  if (w.remote && p.remoteSerial >= 0) {
+    if (pressed) detonateRemote(world, p);
+  } else if (p.cmd.fire && p.cooldown === 0 && (!w.remote || pressed)) fireWeapon(world, p);
 
-  if (world.authority && p.state.origin.y < VOID_Y) killPlayer(world, p, -1, -1);
+  if (world.authority) worldTriggers(world, p);
+}
+
+/** Зоны, которые решает мир, а не движение: чекпоинты и пустота (и бездна ниже VOID_Y). */
+function worldTriggers(world: World, p: Player): void {
+  const o = p.state.origin;
+  const h = playerHalf(p.state);
+  for (const t of world.map.triggers) {
+    if (t.type !== 'checkpoint' && t.type !== 'void') continue;
+    const inside = o.x + h.x > t.min.x && o.x - h.x < t.max.x && o.y + h.y > t.min.y && o.y - h.y < t.max.y &&
+      o.z + h.z > t.min.z && o.z - h.z < t.max.z;
+    if (!inside) continue;
+    if (t.type === 'checkpoint') p.checkpoint = t.reset ? null : t.spawn;
+    else return fell(world, p);
+  }
+  if (o.y < VOID_Y) fell(world, p);
+}
+
+/**
+ * Упал в пустоту. На трассе с чекпоинтами (серф) живой игрок сразу появляется на последнем пройденном — без смерти,
+ * чтобы тренироваться без ожидания. Манекены и игроки на обычных картах гибнут.
+ */
+function fell(world: World, p: Player): void {
+  if (!p.bot && world.map.triggers.some((t) => t.type === 'checkpoint')) respawnPlayer(world, p);
+  else killPlayer(world, p, -1, -1);
 }
 
 /** Один тик мира: игроки (кроме сетевых — их двигают команды), манекены, ракеты, респауны. */

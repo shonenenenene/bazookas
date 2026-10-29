@@ -9,7 +9,7 @@ import type { Vec3 } from '../../shared/math';
 /** Сколько частиц живёт одновременно. Новые затирают самые старые. */
 const MAX = 4096;
 /** Плюс место под «головы» ракет, которые добавляются каждый кадр */
-const MAX_DRAW = MAX + 512;
+const MAX_DRAW = MAX + 1536;
 
 const vertexShader = /* glsl */ `
   attribute vec3 pcolor;

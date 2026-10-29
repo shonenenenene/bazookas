@@ -1,5 +1,5 @@
 import type { UserCmd } from '../shared/player';
-import { WEAPONS } from '../shared/weapons';
+import { WEAPON_COUNT } from '../shared/weapons';
 import { CLIENT } from './config';
 
 const DEG = Math.PI / 180;
@@ -27,7 +27,7 @@ export class Input {
     window.addEventListener('keydown', (e) => {
       if (e.target instanceof HTMLInputElement) return; // печатают ник в меню — это не управление
       this.keys.add(e.code);
-      if (e.code === 'Space') e.preventDefault(); // чтобы страница не прокручивалась
+      if (e.code === 'Space' || e.code === 'Tab') e.preventDefault(); // чтобы страница не прокручивалась / фокус не прыгал
       // Цифры 1–9 — выбор базуки
       if (e.code.startsWith('Digit')) this.selectWeapon(Number(e.code.slice(5)) - 1);
     });
@@ -66,7 +66,7 @@ export class Input {
   }
 
   private selectWeapon(index: number): void {
-    if (index >= 0 && index < WEAPONS.length) this.weapon = index;
+    if (index >= 0 && index < WEAPON_COUNT) this.weapon = index;
   }
 
   private onWheel(e: WheelEvent): void {
@@ -76,7 +76,7 @@ export class Input {
     if (now - this.lastWheel < 120) return;
     this.lastWheel = now;
     const step = e.deltaY > 0 ? 1 : -1;
-    this.weapon = (this.weapon + step + WEAPONS.length) % WEAPONS.length;
+    this.weapon = (this.weapon + step + WEAPON_COUNT) % WEAPON_COUNT;
   }
 
   private onMouseMove(e: MouseEvent): void {
@@ -100,5 +100,10 @@ export class Input {
     cmd.weapon = this.weapon;
     cmd.yaw = this.yaw;
     cmd.pitch = this.pitch;
+  }
+
+  /** Зажата ли клавиша (по e.code: 'Tab', 'KeyW'…) — для того, что не идёт в команду (таблица счёта и т.п.). */
+  held(code: string): boolean {
+    return this.keys.has(code);
   }
 }

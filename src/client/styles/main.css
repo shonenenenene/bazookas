@@ -51,32 +51,51 @@ body {
   pointer-events: none;
 }
 
+/* Прицел: точка отсчёта — центр экрана, вокруг 4 полоски. --gap — зазор от центра,
+   его увеличивает разброс от частой стрельбы (hud.setSpread) */
 .crosshair {
+  --gap: 2px;
+  --len: 7px;
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 18px;
-  height: 18px;
-  transform: translate(-50%, -50%);
+  width: 0;
+  height: 0;
 }
-.crosshair::before,
-.crosshair::after {
-  content: '';
+.crosshair i {
   position: absolute;
   background: var(--toxic);
   outline: 1px solid #000;
+  transition: transform 0.1s; /* разъезжаются плавно */
 }
-.crosshair::before {
-  left: 8px;
-  top: 0;
+/* Вертикальные — сверху и снизу, горизонтальные — слева и справа */
+.crosshair i:nth-child(1),
+.crosshair i:nth-child(2) {
+  left: -1px;
   width: 2px;
-  height: 18px;
+  height: var(--len);
 }
-.crosshair::after {
-  left: 0;
-  top: 8px;
-  width: 18px;
+.crosshair i:nth-child(3),
+.crosshair i:nth-child(4) {
+  top: -1px;
+  width: var(--len);
   height: 2px;
+}
+.crosshair i:nth-child(1) {
+  top: calc(-1 * var(--len));
+  transform: translateY(calc(-1 * var(--gap)));
+}
+.crosshair i:nth-child(2) {
+  top: 0;
+  transform: translateY(var(--gap));
+}
+.crosshair i:nth-child(3) {
+  left: calc(-1 * var(--len));
+  transform: translateX(calc(-1 * var(--gap)));
+}
+.crosshair i:nth-child(4) {
+  left: 0;
+  transform: translateX(var(--gap));
 }
 
 /* Отскоки от стены: ромбики под прицелом, залитые — сколько осталось */
@@ -237,6 +256,54 @@ body {
   text-shadow: 2px 2px 0 #000;
 }
 
+/* ─── Матч (в сети): строка сверху и таблица счёта ─── */
+
+.match {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 24px;
+  color: var(--bone);
+  text-shadow: 2px 2px 0 #000;
+  white-space: nowrap;
+}
+.scores {
+  position: absolute;
+  top: 12%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(460px, 92vw);
+  padding: 8px 12px 10px;
+  background: rgb(13 8 18 / 0.92); /* без blur — дёшево для слабых видеокарт */
+  border: 2px outset #b8b8c8;
+  box-shadow: 0 0 0 1px #000;
+}
+.scores__title {
+  margin-bottom: 6px;
+  text-align: center;
+  font: 26px var(--font-gothic);
+  color: var(--blood);
+}
+.scores__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 21px;
+}
+.scores__table th {
+  font-weight: normal;
+  text-align: left;
+  color: var(--muted);
+  border-bottom: 1px dashed var(--blood);
+}
+.scores__table td:nth-child(n + 3),
+.scores__table th:nth-child(n + 3) {
+  text-align: right;
+}
+.scores__table tr.me td {
+  color: var(--toxic);
+}
+
 /* ─── Меню ─── */
 
 .menu {
@@ -258,9 +325,10 @@ body {
 
 /* Окошко в стиле Windows 98 */
 .window {
-  width: min(680px, 100%);
+  width: min(920px, 100%);
   max-height: 100%;
   overflow-y: auto;
+  cursor: default; /* в игру — кнопкой PLAY или кликом мимо окна */
   background: #0d0812;
   border: 2px outset #b8b8c8;
   box-shadow: 0 0 0 1px #000, 0 0 32px rgb(179 0 27 / 0.45);
@@ -303,7 +371,7 @@ body {
 
 .play {
   display: block;
-  margin: 18px auto;
+  margin: 12px auto 14px;
   font: 34px var(--font-term);
   color: var(--toxic);
   background: none;
@@ -359,19 +427,131 @@ body {
   color: var(--bone);
 }
 
-/* Две колонки: управление и арсенал (на узком экране — друг под другом) */
-.columns {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 8px 20px;
-  margin-bottom: 14px;
+/* Вкладки, как в окнах «Свойства» Windows 98: выбранная — светлее и «прилипает» к панели */
+.tabs {
+  display: flex;
+  gap: 2px;
+  padding-left: 6px;
 }
-.columns h2 {
-  font-family: var(--font-gothic);
-  font-weight: normal;
-  font-size: 24px;
+.tab {
+  padding: 2px 16px 0;
+  font: 22px var(--font-gothic);
+  color: var(--muted);
+  background: #150c1c;
+  border: 2px outset #8a8a9a;
+  border-bottom: none;
+  cursor: pointer;
+}
+.tab--active {
+  position: relative;
+  top: 2px;
   color: var(--blood);
-  margin-bottom: 4px;
+  background: #1f1228;
+}
+.tabpanels {
+  margin-bottom: 14px;
+  padding: 12px;
+  background: #1f1228;
+  border: 2px outset #8a8a9a;
+}
+
+/* Лобби: кнопки и список комнат */
+.lobby__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 16px;
+  margin-bottom: 10px;
+  font-size: 20px;
+}
+.lobby__actions b {
+  font-weight: normal;
+  color: var(--magenta);
+}
+.lobby__private {
+  color: var(--muted);
+}
+.lobby {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 19px;
+}
+.lobby th {
+  font-weight: normal;
+  text-align: left;
+  color: var(--muted);
+  border-bottom: 1px dashed var(--blood);
+}
+.lobby td {
+  padding: 1px 8px 1px 0;
+}
+.lobby button,
+.lobby__actions button {
+  font: inherit;
+  color: var(--toxic);
+  background: none;
+  border: none;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.lobby button:disabled {
+  color: var(--muted);
+  text-decoration: none;
+  cursor: default;
+}
+
+/* Карточки карт: картинка 16:9, имя, описание. Текущая — в кислотной рамке */
+.maps {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 12px;
+}
+.mapcard {
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  text-align: left;
+  font: inherit;
+  color: var(--bone);
+  background: #0d0812;
+  border: 2px outset #6a6a7a;
+  cursor: pointer;
+}
+.mapcard:hover:not(:disabled) {
+  border-color: var(--magenta);
+}
+.mapcard:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+.mapcard--current {
+  border: 2px solid var(--toxic);
+  cursor: default;
+}
+.mapcard__pic {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  font-size: 18px;
+  color: var(--muted);
+  background: repeating-linear-gradient(45deg, #150c1c 0 10px, #0d0812 10px 20px); /* «нет картинки» */
+  border: 1px inset #444;
+}
+.mapcard__name {
+  margin-top: 4px;
+  font-size: 22px;
+  color: var(--magenta);
+  white-space: pre;
+}
+.mapcard--current .mapcard__name {
+  color: var(--toxic);
+}
+.mapcard__desc {
+  font-size: 16px;
+  line-height: 1.05;
+  color: var(--muted);
 }
 
 .controls {
@@ -407,6 +587,13 @@ body {
   padding-left: 18px;
   font-size: 16px;
   color: var(--muted);
+}
+.arsenal__stats {
+  display: block;
+  padding-left: 18px;
+  font-size: 15px;
+  color: var(--bone);
+  opacity: 0.75;
 }
 .tip {
   margin-top: 6px;
@@ -448,4 +635,10 @@ body {
   color: var(--toxic);
   background: #000;
   border: 1px inset #666;
+}
+
+/* Съёмка превью для меню (?preview=1, npm run previews): только картинка мира */
+.preview .menu,
+.preview .hud {
+  display: none;
 }

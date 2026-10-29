@@ -1,6 +1,7 @@
 import { TICK_RATE } from '../../shared/config';
 import { Reader, Writer } from '../../shared/net/binary';
-import { MSG, type PlayerInfo, type TimedEvent, readPlayerInfo, readSnapshot, writePing } from '../../shared/net/protocol';
+import { MSG, type MatchInfo, type PlayerInfo, type TimedEvent, readPlayerInfo, readSnapshot, writePing } from '../../shared/net/protocol';
+import { WEAPONS } from '../../shared/weapons';
 import { type Player, type World, addPlayer, findPlayer, removePlayer } from '../../shared/world';
 import { Interpolator } from './interpolation';
 import { type CmdSink, type CmdSource, Predictor } from './prediction';
@@ -28,6 +29,13 @@ export class OnlineSession {
   ready = false;
   /** Вызывается, когда кто-то зашёл или вышел (для меню) */
   onRoster: () => void = () => {};
+  /**
+   * Надо перезагрузиться на другую карту: комната на ней с самого начала (её создали по ссылке с другим ?map=)
+   * или переходит на неё после матча
+   */
+  onWrongMap: (name: string) => void = () => {};
+  /** Матч в комнате (из последнего снимка): идёт или пауза с итогами, сколько осталось, до скольких фрагов */
+  match: MatchInfo = { phase: 'playing', timeLeft: 0, fragLimit: 0 };
   readonly predictor: Predictor;
 
   private world: World;
@@ -54,6 +62,11 @@ export class OnlineSession {
     return this.world.players.length - this.bots.size;
   }
 
+  /** Это манекен (в таблице счёта их не показываем). */
+  isBot(id: number): boolean {
+    return this.bots.has(id);
+  }
+
   /** Один тик клиента (60 раз в секунду). */
   tick(input: CmdSource): void {
     for (const data of this.link.inbox) this.handle(data);
@@ -76,6 +89,11 @@ export class OnlineSession {
     switch (r.u8()) {
       case MSG.WELCOME: {
         this.me.id = r.u32(); // наш номер раздаёт сервер
+        const mapName = r.str();
+        if (mapName !== this.world.map.name) {
+          this.onWrongMap(mapName);
+          return;
+        }
         const count = r.u8();
         for (let i = 0; i < count; i++) this.addRemote(readPlayerInfo(r));
         this.welcomed = true;
@@ -100,9 +118,22 @@ export class OnlineSession {
         this.interp.commit(snap);
         this.predictor.reconcile(snap);
         this.queueEvents(snap.events);
+        // Счёт игроков и матч — сразу (таблица и таймер не ждут интерполяции)
+        for (let i = 0; i < snap.playerCount; i++) {
+          const np = snap.players[i];
+          const p = findPlayer(this.world, np.id);
+          if (p) {
+            p.frags = np.frags;
+            p.deaths = np.deaths;
+          }
+        }
+        Object.assign(this.match, snap.match);
         this.ready = true;
         break;
       }
+      case MSG.MAP:
+        this.onWrongMap(r.str());
+        break;
       case MSG.PONG:
         this.ping = performance.now() - r.f64();
         break;
@@ -110,6 +141,8 @@ export class OnlineSession {
   }
 
   private addRemote(info: PlayerInfo): void {
+    // Себя тоже видим в списке — берём имя, которое дал сервер (он чистит ник, пустой — придумывает свой)
+    if (info.id === this.me.id) this.me.name = info.name;
     if (info.id === this.me.id || findPlayer(this.world, info.id)) return;
     const p = addPlayer(this.world, info.name, null, null, info.id);
     p.dead = true; // не рисуем, пока не появится в снимке
@@ -125,7 +158,7 @@ export class OnlineSession {
     for (const te of events) {
       const e = te.event;
       if (e.type === 'fire' && e.playerId === id) continue; // свой выстрел уже показали при предсказании
-      if (e.type === 'explode' && e.ownerId === id) {
+      if (e.type === 'explode' && e.ownerId === id && !WEAPONS[e.weapon].hidden) {
         // Свою ракету мы запустили сами. Ещё летит — взрываем там, где взорвал сервер (он главный:
         // например, попал в игрока, которого у нас не задело). Уже взорвалась у нас — второй взрыв не нужен
         const rockets = this.world.predictedRockets;

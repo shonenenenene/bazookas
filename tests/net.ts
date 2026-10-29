@@ -10,6 +10,7 @@ import { type Message, Reader, Writer } from '../src/shared/net/binary';
 import { MSG, createSnapshot, readCmd, readSnapshot, writeCmd, writeSnapshot } from '../src/shared/net/protocol';
 import { type UserCmd, copyUserCmd, createUserCmd, spawnPlayer } from '../src/shared/player';
 import { type GameEvent, type Player, type World, addPlayer, createWorld, findPlayer } from '../src/shared/world';
+import { WEAPONS } from '../src/shared/weapons';
 import { check, round } from './check';
 
 console.log('\n── сеть ──');
@@ -92,7 +93,7 @@ function run(room: Room, clients: TestClient[], ticks: number, each?: () => void
   const world = createWorld(testMap);
   const me = world.players[1];
   me.state.origin.x = 123.456789012345;
-  const kill: GameEvent = { type: 'kill', targetId: 3, attackerId: -1, weapon: -1, pos: vec3(1, 2, 3) };
+  const kill: GameEvent = { type: 'kill', targetId: 3, attackerId: -1, weapon: -1, pos: vec3(1, 2, 3), headshot: true };
   writeSnapshot(w, world, me, 42, [{ tick: 7, event: kill }]);
   r.reset(w.finish());
   r.u8();
@@ -100,11 +101,21 @@ function run(room: Room, clients: TestClient[], ticks: number, each?: () => void
   readSnapshot(r, snap);
   const e = snap.events[0]?.event;
   const ok2 = snap.ack === 42 && snap.me.origin.x === me.state.origin.x && snap.playerCount === world.players.length &&
-    e?.type === 'kill' && e.attackerId === -1 && e.pos.z === 3;
+    e?.type === 'kill' && e.attackerId === -1 && e.pos.z === 3 && e.headshot;
   check('snapshot roundtrip', ok2, `players=${snap.playerCount} event=${e?.type}`);
+
+  // Взрыв в событии: направление полёта (байт на ось) и флаги — для воткнутых ножей
+  const boom: GameEvent = { type: 'explode', pos: vec3(1, 2, 3), weapon: 4, ownerId: 7, serial: 3, dir: vec3(0.6, 0, -0.8), hitPlayer: false, expired: true };
+  writeSnapshot(w, world, me, 43, [{ tick: 8, event: boom }]);
+  r.reset(w.finish());
+  r.u8();
+  readSnapshot(r, snap);
+  const b = snap.events[0]?.event;
+  const ok3 = b?.type === 'explode' && Math.abs(b.dir.x - 0.6) < 0.01 && Math.abs(b.dir.z + 0.8) < 0.01 && !b.hitPlayer && b.expired;
+  check('explode event roundtrip', ok3, `dir=${b?.type === 'explode' ? [b.dir.x, b.dir.y, b.dir.z].map(round).join(',') : '?'}`);
 }
 
-const room = new Room('test');
+const room = new Room('test', testMap, { dummies: true });
 const a = connect(room, 'alice');
 
 // ─── Подключение: сервер принял, прислал всех (с манекенами) ───
@@ -170,6 +181,35 @@ check(
   a.session.predictor.largestCorrection = 0;
   run(room, [a], 60);
   check('net settles', a.session.predictor.largestCorrection < 0.001, `max correction=${a.session.predictor.largestCorrection}`);
+}
+
+// ─── Подрыв по кнопке по сети (Switchblade Serenade): свой снаряд вылетает и взрывается у нас сразу, сервер согласен,
+// ножи считает сервер — и мы их видим (свои осколки рисуются по снимкам) ───
+{
+  run(room, [a], 30);
+  a.events.length = 0;
+  a.session.predictor.largestCorrection = 0;
+  Object.assign(a.keys, { pitch: 20 * DEG, yaw: 0, jump: false, fire: true, weapon: 2 }); // вверх — снаряд долго летит
+  run(room, [a], 1);
+  const instant = a.world.predictedRockets.length === 1 && a.me.remoteSerial >= 0;
+  a.keys.fire = false;
+  run(room, [a], 30);
+  a.keys.fire = true;
+  run(room, [a], 1);
+  const boomAtOnce = a.world.predictedRockets.length === 0 && a.events.some((e) => e.type === 'explode' && e.weapon === 2);
+  a.keys.fire = false;
+  run(room, [a], 20);
+  const knifeIndex = WEAPONS.findIndex((w) => w.name === 'switchblade');
+  const serverKnives = room.world.rockets.filter((r) => r.weapon === knifeIndex).length;
+  const seenKnives = a.world.rockets.filter((r) => r.weapon === knifeIndex).length;
+  const agree = a.me.remoteSerial === -1 && a.server.player.remoteSerial === -1;
+  const corr = a.session.predictor.largestCorrection;
+  check(
+    'net remote detonate',
+    instant && boomAtOnce && agree && serverKnives > 0 && seenKnives > 0 && corr < 0.01,
+    `снаряд сразу=${instant} взрыв сразу=${boomAtOnce} согласны=${agree} ножей: у сервера ${serverKnives}, видим ${seenKnives} max correction=${round(corr)}`,
+  );
+  run(room, [a], 90); // ножи догорели
 }
 
 // ─── Паркур по сети: отскок (поздний и вовремя), подкат — клиент считает ровно как сервер ───
@@ -259,4 +299,48 @@ check(
   room.tick();
   check('net garbage', !c.player.dead, 'сервер не упал');
   room.leave(c);
+}
+
+// ─── Комната на другой карте: клиент узнаёт её из приветствия и не играет на своей ───
+{
+  const other = new Room('other', { ...testMap, name: 'speedway' });
+  const c = connect(other, 'carol');
+  let asked = '';
+  c.session.onWrongMap = (name) => (asked = name);
+  run(other, [c], 10);
+  check('net wrong map', asked === 'speedway' && !c.session.ready, `asked=${asked} ready=${c.session.ready}`);
+}
+
+// ─── Матч FFA: фраги (за самоубийство −1, за манекена — ничего), лимит → пауза с итогами →
+// смена карты (клиент получает MAP) или новый матч на той же карте со счётом с нуля ───
+{
+  const killEvent = (attacker: Player | null, target: Player): GameEvent =>
+    ({ type: 'kill', targetId: target.id, attackerId: attacker ? attacker.id : -1, weapon: 0, pos: vec3(), headshot: false });
+  for (const rotate of [true, false]) {
+    const r2 = new Room('match', testMap, { dummies: true, nextMap: rotate ? () => 'speedway' : undefined });
+    const c1 = connect(r2, 'killer');
+    const c2 = connect(r2, 'victim');
+    let mapAsked = '';
+    c1.session.onWrongMap = (name) => (mapAsked = name);
+    run(r2, [c1, c2], 10);
+    const k = c1.server.player;
+    const v = c2.server.player;
+    const bot = r2.world.players.find((p) => p.bot)!;
+    r2.world.events.push(killEvent(k, k), killEvent(null, v), killEvent(k, bot)); // сам себя, бездна, манекен
+    run(r2, [c1, c2], 2);
+    const scoring = k.frags === -1 && k.deaths === 1 && v.frags === -1 && v.deaths === 1 && bot.deaths === 0;
+    for (let i = 0; i < r2.match.fragLimit + 1; i++) r2.world.events.push(killEvent(k, v));
+    run(r2, [c1, c2], 20); // снимок дошёл до клиента
+    const ended = r2.match.phase === 'intermission' && k.frags === r2.match.fragLimit;
+    const clientSees = c1.session.match.phase === 'intermission' && findPlayer(c1.world, k.id)?.frags === r2.match.fragLimit;
+    run(r2, [c1, c2], 60 * 11); // пауза с итогами (10 с) прошла
+    const after = rotate
+      ? mapAsked === 'speedway' && r2.closing
+      : r2.match.phase === 'playing' && k.frags === 0 && v.deaths === 0 && !r2.closing;
+    check(
+      rotate ? 'match → next map' : 'match → restart',
+      scoring && ended && clientSees && after,
+      `счёт=${scoring} конец по фрагам=${ended} клиент видит=${clientSees} потом=${after} (карта: ${mapAsked || '-'})`,
+    );
+  }
 }

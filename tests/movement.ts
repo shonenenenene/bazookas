@@ -218,3 +218,18 @@ function runAndJump(ps: PlayerState, cmd: UserCmd) {
   run(ps, cmd, 60, () => (ground ||= ps.onGround));
   check('surf', !ground && ps.origin.z > 400 && ps.origin.y > 40, `z=${round(ps.origin.z)} y=${round(ps.origin.y)}`);
 }
+
+// Инерция: быстрее бега трение слабее — 550 после бхопа гаснут плавно, а с бега (320) встаём так же быстро
+{
+  const fast = fresh(0, 0, 0);
+  for (let i = 0; i < 10; i++) playerMove(fast.ps, fast.cmd, flat, TICK_DT); // встали на пол
+  set(fast.ps.velocity, 0, 0, -550);
+  for (let i = 0; i < 18; i++) playerMove(fast.ps, fast.cmd, flat, TICK_DT); // 0.3 с без клавиш
+  const glide = lengthXZ(fast.ps.velocity);
+  const walk = fresh(0, 0, 0);
+  for (let i = 0; i < 10; i++) playerMove(walk.ps, walk.cmd, flat, TICK_DT);
+  set(walk.ps.velocity, 0, 0, -320);
+  for (let i = 0; i < 30; i++) playerMove(walk.ps, walk.cmd, flat, TICK_DT); // 0.5 с без клавиш
+  const stop = lengthXZ(walk.ps.velocity);
+  check('inertia', glide > 380 && stop < 5, `550 через 0.3 с=${round(glide)}, 320 через 0.5 с=${round(stop)}`);
+}

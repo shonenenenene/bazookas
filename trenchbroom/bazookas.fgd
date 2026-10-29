@@ -1,0 +1,78 @@
+// Объекты The Bazookas для TrenchBroom. Как игра их читает — src/shared/maps/mapFormat.ts.
+// Углы (angle) — как в Quake: 0 — на восток (+X), 90 — на север (+Y), против часовой.
+
+@SolidClass = worldspawn : "The map itself"
+[
+    message(string) : "Map name (shown in the menu)"
+    description(string) : "A line or two about the map (shown in the menu under the preview)"
+    training(choices) : "Training map (dummies online, not in the map rotation)" : 0 =
+    [
+        0 : "No (deathmatch arena)"
+        1 : "Yes"
+    ]
+    sky_color(string) : "Sky and fog color, #RRGGBB" : "#0d0612"
+    fog_near(integer) : "Fog starts at this distance" : 300
+    fog_far(integer) : "Fog is solid here = draw distance (keep it low for weak PCs)" : 2600
+    sky(choices) : "Sky" : "" =
+    [
+        "" : "Plain sky_color"
+        "space" : "Space: stars, nebulae, blood moon"
+    ]
+]
+
+@PointClass size(-16 -16 -28, 16 16 28) color(57 255 20) = info_player_deathmatch : "Spawn point (players spawn at the one farthest from everyone alive)"
+[
+    angle(integer) : "Facing direction, degrees" : 0
+]
+
+@PointClass size(-16 -16 -28, 16 16 28) color(255 26 168) = bazooka_dummy : "Training dummy"
+[
+    name(string) : "Name in the kill feed" : "dummy"
+    bot(choices) : "Behavior" : "idle" =
+    [
+        "idle" : "Stands still"
+        "strafe" : "Strafes left and right"
+        "bhop" : "Bunny hops in circles"
+    ]
+    angle(integer) : "Facing direction, degrees" : 0
+]
+
+@SolidClass color(57 255 20) = trigger_jumppad : "Jump pad: jumping while standing inside launches you up (horizontal speed is kept). Put a visible 'pad' brush under it."
+[
+    height(integer) : "Jump height, units" : 500
+]
+
+@SolidClass color(255 26 168) = trigger_booster : "Booster: speeds up everyone inside along 'angle' (works a bit above the floor too). Put a visible 'booster' brush under it."
+[
+    angle(integer) : "Push direction, degrees" : 0
+    speed(integer) : "Top speed, u/s" : 900
+    accel(integer) : "Acceleration, u/s per second" : 6000
+]
+
+@PointClass size(-16 -16 -28, 16 16 28) color(57 255 20) = info_checkpoint : "Where a trigger_checkpoint respawns you (its target = this targetname). On a surf track put it right above the ramp with a speed."
+[
+    targetname(target_source) : "Name (trigger_checkpoint points here with target)"
+    angle(integer) : "Look direction, degrees" : 90
+    speed(integer) : "Forward speed right after respawn, u/s (0 = standing)" : 0
+]
+
+@SolidClass color(57 255 20) = trigger_checkpoint : "Checkpoint: fly through it and you respawn at its target info_checkpoint (no target: bottom middle of the brush) after falling into a trigger_void or dying. reset 1 = finish line: forget the checkpoint, next fall goes back to start."
+[
+    target(target_destination) : "info_checkpoint to respawn at"
+    angle(integer) : "Look direction after respawn if no target, degrees" : 90
+    reset(choices) : "Finish line" : 0 =
+    [
+        0 : "No (checkpoint)"
+        1 : "Yes (forget checkpoint)"
+    ]
+]
+
+@SolidClass color(20 0 30) = trigger_void : "Void / pit: touch it and you respawn at your last checkpoint at once (on maps with checkpoints), otherwise you die. Dummies always die. Below height -1000 everything is void anyway."
+[
+]
+
+@PointClass size(-8 -8 -8, 8 8 8) color(255 255 255) = info_preview : "Camera for the map preview picture in the menu (npm run previews). The origin is the eye."
+[
+    angle(integer) : "Look direction, degrees" : 0
+    pitch(integer) : "Look up (+) / down (-), degrees" : 0
+]

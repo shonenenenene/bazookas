@@ -1,6 +1,7 @@
 import { TICK_RATE } from '../../shared/config';
 import { copy, distSq, lerp, vec3 } from '../../shared/math';
 import { type NetPlayer, type NetRocket, type Snapshot, createSnapshot } from '../../shared/net/protocol';
+import { WEAPONS } from '../../shared/weapons';
 import type { Rocket, World } from '../../shared/world';
 import { CLIENT } from '../config';
 
@@ -106,7 +107,7 @@ export class Interpolator {
     this.seen.clear();
     for (let i = 0; i < b.rocketCount; i++) {
       const rb = b.rockets[i];
-      if (rb.ownerId === meId) continue;
+      if (rb.ownerId === meId && !WEAPONS[rb.weapon].hidden) continue; // свою ракету рисуем предсказанной; осколки — нет
       const ra = findRocket(a, rb.id);
       // Ракета появилась между снимками — покажем со следующего тика, когда будет откуда лететь
       if (!ra && a !== b) continue;
@@ -117,7 +118,7 @@ export class Interpolator {
         copy(r.prevPos, r.pos);
         copy(r.pos, pos);
       } else {
-        r = this.rocketPool.pop() ?? { id: 0, ownerId: -1, serial: 0, weapon: 0, pos: vec3(), prevPos: vec3(), vel: vec3(), age: 0 };
+        r = this.rocketPool.pop() ?? { id: 0, ownerId: -1, serial: 0, weapon: 0, pos: vec3(), prevPos: vec3(), vel: vec3(), age: 0, bounces: 0 };
         r.id = rb.id;
         r.ownerId = rb.ownerId;
         r.weapon = rb.weapon;

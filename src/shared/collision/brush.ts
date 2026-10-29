@@ -50,7 +50,7 @@ export function makeBrush(planes: Plane[], color: number): Brush {
 }
 
 /** Шесть плоскостей коробки min..max. */
-function boxPlanes(min: Vec3, max: Vec3): Plane[] {
+export function boxPlanes(min: Vec3, max: Vec3): Plane[] {
   return [
     makePlane(1, 0, 0, max.x),
     makePlane(-1, 0, 0, -min.x),

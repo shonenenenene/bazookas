@@ -40,6 +40,8 @@ export interface PlayerState {
   wallNormal: Vec3;
   /** Секунд, пока стена не ловит (после отскока) */
   wallCooldown: number;
+  /** Сколько секунд едем по серф-склону без отрыва: чем дольше, тем быстрее сползаем (дуга, см. MOVE.surfSink*) */
+  surfTime: number;
 }
 
 /** Что игрок хочет сделать за один тик. Клиент отправляет это на сервер. */
@@ -80,6 +82,7 @@ export function createPlayerState(): PlayerState {
     wallJumps: 0,
     wallNormal: vec3(),
     wallCooldown: 0,
+    surfTime: 0,
   };
 }
 
@@ -101,6 +104,7 @@ export function copyPlayerState(out: PlayerState, src: PlayerState): void {
   out.wallJumps = src.wallJumps;
   copy(out.wallNormal, src.wallNormal);
   out.wallCooldown = src.wallCooldown;
+  out.surfTime = src.surfTime;
 }
 
 export function createUserCmd(): UserCmd {
@@ -131,7 +135,8 @@ export function eyeHeight(ps: PlayerState): number {
 /** Поставить игрока на точку появления (стоя на полу, без скорости). */
 export function spawnPlayer(ps: PlayerState, spawn: SpawnPoint): void {
   set(ps.origin, spawn.feet.x, spawn.feet.y + PLAYER.halfExtents.y + 1, spawn.feet.z);
-  set(ps.velocity, 0, 0, 0);
+  const speed = spawn.speed ?? 0;
+  set(ps.velocity, -Math.sin(spawn.yaw) * speed, 0, -Math.cos(spawn.yaw) * speed);
   ps.onGround = false;
   ps.jumpDown = false;
   ps.jumpBuffer = 0;
@@ -145,4 +150,5 @@ export function spawnPlayer(ps: PlayerState, spawn: SpawnPoint): void {
   ps.wallSpeed = 0;
   ps.wallJumps = 0;
   ps.wallCooldown = 0;
+  ps.surfTime = 0;
 }

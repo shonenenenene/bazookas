@@ -33,6 +33,11 @@ export class Writer {
     this.view.setUint16(this.pos, v);
     this.pos += 2;
   }
+  i16(v: number): void {
+    this.room(2);
+    this.view.setInt16(this.pos, v);
+    this.pos += 2;
+  }
   u32(v: number): void {
     this.room(4);
     this.view.setUint32(this.pos, v);
@@ -110,6 +115,11 @@ export class Reader {
   }
   u16(): number {
     const v = this.view.getUint16(this.pos);
+    this.pos += 2;
+    return v;
+  }
+  i16(): number {
+    const v = this.view.getInt16(this.pos);
     this.pos += 2;
     return v;
   }

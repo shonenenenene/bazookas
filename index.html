@@ -12,7 +12,8 @@
     <!-- HUD поверх игры (обновляется из src/client/ui/hud.ts) -->
     <div class="hud">
       <div id="hud-hurt" class="hurt"></div>
-      <div id="hud-crosshair" class="crosshair"></div>
+      <!-- Прицел: 4 полоски вокруг центра, при разбросе разъезжаются (hud.setSpread) -->
+      <div id="hud-crosshair" class="crosshair"><i></i><i></i><i></i><i></i></div>
       <!-- Отскоки от стены: сколько осталось до приземления (ромбики под прицелом) -->
       <div id="hud-walljumps" class="walljumps" hidden></div>
       <div id="hud-debug" class="hud__debug"></div>
@@ -33,13 +34,23 @@
         <div id="hud-slots" class="weapon__slots"></div>
       </div>
 
+      <!-- Матч (в сети): строка сверху и таблица счёта (Tab / пауза с итогами) — hud.match -->
+      <div id="hud-match" class="match" hidden></div>
+      <div id="hud-scores" class="scores" hidden>
+        <div id="hud-scores-title" class="scores__title"></div>
+        <table class="scores__table">
+          <thead><tr><th>#</th><th>player</th><th>frags</th><th>deaths</th></tr></thead>
+          <tbody id="hud-scores-body"></tbody>
+        </table>
+      </div>
+
       <div id="hud-death" class="death" hidden>
         <div class="death__title">u got bazooka'd</div>
         <div class="death__sub">respawning... git gud</div>
       </div>
     </div>
 
-    <!-- Стартовый экран / пауза. Все тексты меню — здесь (список базук — из weapons.ts) -->
+    <!-- Стартовый экран / пауза. Все тексты меню — здесь (карты и базуки заполняет src/client/ui/menu.ts) -->
     <div id="menu" class="menu">
       <div class="window">
         <div class="window__titlebar">
@@ -50,9 +61,9 @@
           <h1 class="logo">The Bazookas</h1>
           <p class="tagline">~*~ xXx rOcKeTs OnLy xXx ~*~</p>
 
-          <button class="play">[ CLiCK 2 PLAY ]</button>
+          <button class="play" type="button">[ CLiCK 2 PLAY ]</button>
 
-          <!-- Сеть: ник и комната (заполняется из src/client/ui/menu.ts) -->
+          <!-- Сеть: ник и комната -->
           <div class="netbox">
             <label>
               nick:
@@ -61,9 +72,32 @@
             <div id="menu-room" class="netbox__room"></div>
           </div>
 
-          <div class="columns">
-            <section>
-              <h2>~ controlz ~</h2>
+          <!-- Вкладки, как в окнах «Свойства» Windows 98 -->
+          <div class="tabs" role="tablist">
+            <button class="tab" type="button" data-tab="online">online</button>
+            <button class="tab" type="button" data-tab="maps">maps</button>
+            <button class="tab" type="button" data-tab="arsenal">arsenal</button>
+            <button class="tab" type="button" data-tab="controls">controlz</button>
+          </div>
+          <div class="tabpanels">
+            <!-- Лобби: быстрая игра, своя комната, список открытых комнат (заполняет menu.ts, список — с сервера /api/rooms) -->
+            <section class="tabpanel" data-panel="online" hidden>
+              <div id="menu-lobby-actions" class="lobby__actions"></div>
+              <table class="lobby">
+                <thead><tr><th>room</th><th>map</th><th>ppl</th><th>match</th><th></th></tr></thead>
+                <tbody id="menu-lobby-rooms"></tbody>
+              </table>
+              <p id="menu-lobby-status" class="tip"></p>
+            </section>
+            <section class="tabpanel" data-panel="maps" hidden>
+              <div id="menu-maps" class="maps"></div>
+              <p id="menu-maps-note" class="tip"></p>
+            </section>
+            <section class="tabpanel" data-panel="arsenal" hidden>
+              <ul id="menu-arsenal" class="arsenal"></ul>
+              <p class="tip">pro tip: shoot ur feet + jump = rocket jump</p>
+            </section>
+            <section class="tabpanel" data-panel="controls" hidden>
               <table class="controls">
                 <tr><td>WASD</td><td>move</td></tr>
                 <tr><td>MOUSE</td><td>look</td></tr>
@@ -72,16 +106,13 @@
                 <tr><td>W + MOUSE</td><td>steer in air</td></tr>
                 <tr><td>SHIFT / C</td><td>crouch · on the run = slide</td></tr>
                 <tr><td>SPACE at a wall</td><td>walljump · right on impact = speed boost · 3 per jump</td></tr>
+                <tr><td>A / D on a steep ramp</td><td>surf · hold the key into the ramp, no W, look along it</td></tr>
                 <tr><td>SPACE on pad</td><td>super jump</td></tr>
-                <tr><td>1-4 / WHEEL</td><td>switch bazooka</td></tr>
+                <tr><td>1-5 / WHEEL</td><td>switch bazooka</td></tr>
                 <tr><td>R</td><td>respawn (sandbox)</td></tr>
+                <tr><td>TAB</td><td>scoreboard (online)</td></tr>
                 <tr><td>ESC</td><td>back 2 menu</td></tr>
               </table>
-            </section>
-            <section>
-              <h2>~ arsenal ~</h2>
-              <ul id="menu-arsenal" class="arsenal"></ul>
-              <p class="tip">pro tip: shoot ur feet + jump = rocket jump</p>
             </section>
           </div>
 

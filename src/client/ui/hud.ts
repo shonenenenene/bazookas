@@ -1,6 +1,8 @@
 import { MOVE } from '../../shared/config';
 import type { PlayerState } from '../../shared/player';
+import type { MatchInfo } from '../../shared/net/protocol';
 import { WEAPONS } from '../../shared/weapons';
+import type { Player } from '../../shared/world';
 
 /**
  * HUD поверх игры: здоровье, базука и перезарядка, спидометр, лента убийств, отладочная строка.
@@ -23,8 +25,15 @@ export class Hud {
   private hurtEl = byId('hud-hurt');
   private crosshairEl = byId('hud-crosshair');
   private wallJumpsEl = byId('hud-walljumps');
+  private matchEl = byId('hud-match');
+  private scoresEl = byId('hud-scores');
+  private scoresTitleEl = byId('hud-scores-title');
+  private scoresBodyEl = byId('hud-scores-body');
+  private matchFrames = 0;
+  private scoresShown = false;
 
   private shownWallJumps = -1; // −1 — ромбики спрятаны
+  private shownSpread = 0;
   private shownHealth = -1;
   private shownWeapon = -1;
   private topSpeed = 0;
@@ -34,7 +43,8 @@ export class Hud {
 
   constructor() {
     // Номера слотов под названием базуки: 1 2 3 4
-    WEAPONS.forEach((_, i) => {
+    WEAPONS.forEach((w, i) => {
+      if (w.hidden) return; // осколки — не базуки
       const slot = document.createElement('span');
       slot.textContent = String(i + 1);
       this.slotsEl.append(slot);
@@ -55,6 +65,44 @@ export class Hud {
     [...this.wallJumpsEl.children].forEach((el, i) => el.classList.toggle('on', i < left));
   }
 
+  /**
+   * Матч (в сети): строка сверху — свои фраги, место, время; таблица счёта — пока держишь Tab и в паузе с итогами.
+   * Звать каждый кадр: DOM обновляется раз в 6 кадров (~10 раз в секунду) или когда таблица появилась/пропала.
+   */
+  match(m: MatchInfo, players: readonly Player[], isBot: (id: number) => boolean, meId: number, tabHeld: boolean): void {
+    const showScores = tabHeld || m.phase === 'intermission';
+    if (++this.matchFrames < 6 && showScores === this.scoresShown) return;
+    this.matchFrames = 0;
+
+    // Места: больше фрагов — выше, при равенстве — меньше смертей
+    const rows = players.filter((p) => !isBot(p.id)).sort((a, b) => b.frags - a.frags || a.deaths - b.deaths);
+    const mine = rows.findIndex((p) => p.id === meId);
+    const me = rows[mine];
+    this.matchEl.hidden = false;
+    this.matchEl.textContent = m.phase === 'intermission'
+      ? 'match over'
+      : `${me?.frags ?? 0} frags · #${mine + 1}/${rows.length} · ${clock(m.timeLeft)} · to ${m.fragLimit}`;
+
+    this.scoresShown = showScores;
+    this.scoresEl.hidden = !showScores;
+    if (!showScores) return;
+    this.scoresTitleEl.textContent = m.phase === 'intermission'
+      ? `${rows[0]?.name ?? 'nobody'} wins!!1 · next match in ${Math.ceil(m.timeLeft)}s`
+      : `first 2 ${m.fragLimit} frags · ${clock(m.timeLeft)} left`;
+    this.scoresBodyEl.replaceChildren(
+      ...rows.map((p, i) => {
+        const tr = document.createElement('tr');
+        if (p.id === meId) tr.className = 'me';
+        for (const text of [String(i + 1), p.name, String(p.frags), String(p.deaths)]) {
+          const td = document.createElement('td');
+          td.textContent = text;
+          tr.append(td);
+        }
+        return tr;
+      }),
+    );
+  }
+
   /** Спидометр и отладка: каждый кадр копим, раз в 0.1 с пишем в DOM. ping — null в песочнице. */
   update(frameDt: number, speed: number, drawCalls: number, ping: number | null): void {
     this.topSpeed = Math.max(this.topSpeed, speed);
@@ -73,6 +121,17 @@ export class Hud {
     this.frames = 0;
     this.elapsed = 0;
     this.worstFrame = 0;
+  }
+
+  /**
+   * Полоски прицела разъезжаются от центра, когда базука разбросана частой стрельбой (deg — разброс в градусах).
+   * DOM трогаем, только когда разница заметна (шаг 0.5°).
+   */
+  setSpread(deg: number): void {
+    const step = Math.round(deg * 2) / 2;
+    if (step === this.shownSpread) return;
+    this.shownSpread = step;
+    this.crosshairEl.style.setProperty('--gap', `${2 + step * 3}px`);
   }
 
   setHealth(hp: number): void {
@@ -141,4 +200,10 @@ function byId(id: string): HTMLElement {
   const el = document.getElementById(id);
   if (!el) throw new Error(`В index.html нет элемента #${id}`);
   return el;
+}
+
+/** Секунды → «8:05» */
+function clock(seconds: number): string {
+  const s = Math.max(0, Math.ceil(seconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }

@@ -10,8 +10,9 @@ export type ConnectionStatus = 'connecting' | 'open' | 'closed';
 export class Connection implements NetLink {
   readonly inbox: ArrayBuffer[] = [];
   status: ConnectionStatus = 'connecting';
-  /** Почему закрыли (текст от сервера, например «room is full») */
+  /** Почему закрыли (текст от сервера, например «room is full») и код (CLOSE в protocol.ts) */
   closeReason = '';
+  closeCode = 0;
   /** Вызывается при каждой смене статуса */
   onStatus: (status: ConnectionStatus) => void = () => {};
 
@@ -25,6 +26,7 @@ export class Connection implements NetLink {
     this.socket.onopen = () => this.setStatus('open');
     this.socket.onclose = (e) => {
       this.closeReason = e.reason;
+      this.closeCode = e.code;
       this.setStatus('closed');
     };
     this.socket.onmessage = (e) => {
@@ -39,6 +41,11 @@ export class Connection implements NetLink {
     if (this.status !== 'open') return;
     if (this.halfLag > 0) setTimeout(() => this.sendNow(data), this.halfLag);
     else this.sendNow(data);
+  }
+
+  /** Закрыть соединение (уходим со страницы — комната сразу узнает, что нас нет). */
+  close(): void {
+    this.socket.close(1000, 'bye');
   }
 
   private sendNow(data: Message): void {

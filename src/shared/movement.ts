@@ -63,6 +63,12 @@ const downVel = vec3();
 /** slideMove отмечает тут, что упёрлись в отвесную стену (и её нормаль) — так замечаем касание стены */
 let hitWall = false;
 const hitWallNormal = vec3();
+/** Мёртвая зона взгляда на серфе (синус угла, ~6°): ближе к «вдоль склона» взгляд на высоту не влияет */
+const SURF_AIM_DEADZONE = 0.1;
+/** groundCheck отмечает тут, что под нами крутой склон для серфа (не пол и не стена), и его нормаль */
+let onSurf = false;
+const surfNormal = vec3();
+const surfIn = vec3();
 
 /**
  * Один тик движения игрока.
@@ -92,6 +98,7 @@ export function playerMove(
   groundCheck(ps, brushes);
   // Предел 255 — чтобы число влезало в байт при отправке по сети
   ps.groundTicks = ps.onGround ? Math.min(ps.groundTicks + 1, 255) : 0;
+  ps.surfTime = onSurf ? ps.surfTime + dt : 0;
   updateJump(ps, cmd, jumpNow, triggers);
 
   if (ps.onGround) {
@@ -108,6 +115,7 @@ export function playerMove(
     }
   } else {
     if (ps.wallTouch) updateWallTouch(ps, cmd, jumpNow, brushes, dt);
+    if (onSurf && jumpNow && ps.wallCooldown === 0) surfJump(ps);
     step += airMove(ps, cmd, brushes, dt);
   }
 
@@ -123,12 +131,15 @@ function groundCheck(ps: PlayerState, brushes: readonly Brush[]): void {
   const wasOnGround = ps.onGround;
   set(end, ps.origin.x, ps.origin.y - 0.25, ps.origin.z);
   traceBox(tr, brushes, ps.origin, end, half);
+  onSurf = false;
 
   // Под ногами пусто (или застряли в стене)
   if (tr.fraction === 1 || tr.allSolid) {
     ps.onGround = false;
     return;
   }
+  onSurf = tr.normal.y < MOVE.minWalkNormal && tr.normal.y > WALL_MAX_NORMAL_Y;
+  if (onSurf) copy(surfNormal, tr.normal);
   // Летим вверх, прочь от поверхности (прыжок, взрыв ракеты) — это уже не стояние.
   // Порог 1, а не 0: крошки вроде 1e-70 от OVERCLIP иначе отрывали бы от склона на спуске
   if (ps.velocity.y > 1 && dot(ps.velocity, tr.normal) > 10) {
@@ -190,6 +201,12 @@ function applyFriction(ps: PlayerState, dt: number, friction: number): void {
   const speed = length(v);
   if (speed < 1) {
     set(v, 0, 0, 0);
+    return;
+  }
+  // Быстрее бега — слабое трение (инерция), но не ниже скорости бега за один тик: дальше тормозит обычное
+  if (speed > MOVE.maxSpeed && friction > MOVE.overspeedFriction) {
+    const newSpeed = Math.max(speed - speed * MOVE.overspeedFriction * dt, MOVE.maxSpeed);
+    scale(v, v, newSpeed / speed);
     return;
   }
   const control = Math.max(speed, MOVE.stopSpeed);
@@ -315,7 +332,35 @@ function moveOnGround(ps: PlayerState, brushes: readonly Brush[], dt: number): n
 function airMove(ps: PlayerState, cmd: UserCmd, brushes: readonly Brush[], dt: number): number {
   const wishSpeed = computeWish(cmd);
   const v = ps.velocity;
-  if (cmd.forward === 0 && cmd.right !== 0) {
+  // Серф: A/D в сторону склона прижимают к нему, куда бы ни смотрел, — гасят сползание (и удар при падении
+  // на склон). Сползать разрешаем со скоростью sink, растущей со временем на склоне: сначала едешь ровно,
+  // потом всё круче вниз — дуга. Вниз по склону со скоростью sink = «от склона» по горизонтали sink·n.y / n_гориз.
+  // Пока прижимает, обычный разгон в воздухе не работает: стрейф в склон каждый тик подталкивал бы вверх,
+  // и игрок заезжал бы на гребень и переваливал на другую сторону. Скорость на серфе — от спуска и отскоков.
+  // Подняться выше по склону (или съехать) — взглядом: см. MOVE.surfClimb.
+  // Хребет, который ещё и спускается вдоль трассы, прижимание не тормозит: оно держит постоянной
+  // скорость «от склона», а разгон вдоль хребта её почти не меняет
+  let gripped = false;
+  if (onSurf && cmd.right !== 0 && MOVE.surfAccel > 0) {
+    set(surfIn, -surfNormal.x, 0, -surfNormal.z);
+    const nh = normalize(surfIn, surfIn);
+    if (dot(wishDir, surfIn) > 0) {
+      const sink = Math.min(ps.surfTime * MOVE.surfSinkGrow, MOVE.surfSinkMax);
+      // Высота на склоне — взглядом: смотришь в склон — поднимаешься к гребню, от склона — съезжаешь ниже.
+      // Около «вдоль склона» (±6°) — мёртвая зона: неточный взгляд не сбивает
+      const lookIn = -Math.sin(cmd.yaw) * surfIn.x - Math.cos(cmd.yaw) * surfIn.z;
+      const aim = Math.sign(lookIn) * Math.max(0, Math.abs(lookIn) - SURF_AIM_DEADZONE);
+      const target = (-sink * surfNormal.y) / nh + aim * MOVE.surfClimb;
+      // Скорость «в склон» ведём к target в обе стороны, но не быстрее surfAccel
+      const limit = MOVE.surfAccel * MOVE.maxSpeed * dt;
+      const change = Math.max(-limit, Math.min(limit, target - dot(v, surfIn)));
+      addScaled(v, v, surfIn, change);
+      gripped = true;
+    }
+  }
+  if (gripped) {
+    // уже разогнали — см. выше
+  } else if (cmd.forward === 0 && cmd.right !== 0) {
     const capped = Math.min(wishSpeed, MOVE.airSpeedCap);
     accelerate(v, wishDir, capped, MOVE.airStrafeAccel, capped, dt);
   } else {
@@ -351,6 +396,28 @@ function airControl(v: Vec3, wishSpeed: number, dt: number): void {
   const len = Math.sqrt(nx * nx + nz * nz);
   v.x = (nx / len) * speed;
   v.z = (nz / len) * speed;
+}
+
+/**
+ * Отскок от серф-склона: пробел, пока едешь по склону. Скорость по горизонтали растёт, как от удачного хопа
+ * (+surfJumpBoost до surfJumpMaxSpeed), «от склона» — не меньше surfJumpPush, плюс немного вверх.
+ * «Остывание» общее с отскоком от стены — чтобы не сработал дважды.
+ */
+function surfJump(ps: PlayerState): void {
+  const v = ps.velocity;
+  const speed = lengthXZ(v);
+  if (speed > 1) {
+    const boosted = Math.max(speed, Math.min(speed + MOVE.surfJumpBoost, MOVE.surfJumpMaxSpeed));
+    v.x *= boosted / speed;
+    v.z *= boosted / speed;
+  }
+  const push = MOVE.surfJumpPush - dot(v, surfNormal);
+  if (push > 0) addScaled(v, v, surfNormal, push);
+  v.y += MOVE.surfJumpUp;
+  ps.jumpBuffer = 0;
+  ps.wallCooldown = MOVE.wallJumpCooldown;
+  ps.surfTime = 0;
+  onSurf = false; // в этом тике склон уже не прижимает
 }
 
 // ─── Отскок от стены ────────────────────────────────────────

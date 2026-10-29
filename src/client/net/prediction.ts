@@ -83,11 +83,11 @@ export class Predictor {
     this.link.send(this.writer.finish());
 
     copy(this.me.prevOrigin, this.me.state.origin);
-    this.run(cmd);
-
-    // Свои ракеты летят у нас сразу. Взорвалась рядом — толкает нас (как на сервере: после хода игрока)
     const world = this.world;
     const eventsBefore = world.events.length;
+    this.run(cmd); // тут же может подорваться свой снаряд (подрыв по кнопке)
+
+    // Свои ракеты летят у нас сразу. Взорвалась рядом — толкает нас (как на сервере: после хода игрока)
     moveRockets(world, world.predictedRockets, TICK_DT);
     for (let i = eventsBefore; i < world.events.length; i++) {
       const e = world.events[i];
@@ -187,8 +187,12 @@ function applyServerState(me: Player, s: NetMe): void {
   ps.wallJumps = s.wallJumps;
   copy(ps.wallNormal, s.wallNormal);
   ps.wallCooldown = s.wallCooldown;
+  ps.surfTime = s.surfTime;
   // groundNormal не присылаем: движение пересчитывает его в начале каждого тика
   me.cooldown = s.cooldown;
+  me.bloom = s.bloom;
+  me.fireDown = s.fireDown;
+  me.remoteSerial = s.remoteSerial;
   me.weapon = s.weapon;
   me.rocketsFired = s.rocketsFired;
   me.health = s.health;
