@@ -244,8 +244,8 @@ ${body.replaceAll('crate', 'trigger')}
   const cps = map.triggers.filter((t) => t.type === 'checkpoint').length;
   check(
     'sky_surf map',
-    bad === 0 && badFaces(map) === 0 && map.dummies.length >= 20 && cps === 0 && map.sky === 'space',
-    `brushes=${map.brushes.length} dummies=${map.dummies.length} (не стоят: ${bad}) checkpoints=${cps}`,
+    bad === 0 && badFaces(map) === 0 && map.dummies.length >= 20 && cps === 0 && map.sky === 'space' && map.training === true,
+    `brushes=${map.brushes.length} dummies=${map.dummies.length} (не стоят: ${bad}) checkpoints=${cps} training=${map.training}`,
   );
 
   // Круг: смотрим по ходу, держим клавишу в сторону склона, сползаем — доворачиваем взгляд в склон;

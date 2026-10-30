@@ -6,6 +6,7 @@
 "fog_near" "2500"
 "fog_far" "12000"
 "sky" "space"
+"training" "1"
 "description" "surf ring in space under a blood moon. 37k units, gaps, ridge-hops, catapult back 2 start"
 // brush 0
 {

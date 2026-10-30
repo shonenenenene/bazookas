@@ -19,10 +19,13 @@ const rooms = new Map<string, Room>();
 
 // ─── Смена карт после матча ───────────────────────────────────
 
-/** Карты для смены после матча: все, кроме тренировочных (training 1 в worldspawn), по алфавиту. */
+/**
+ * Карты для смены после матча: все, кроме тренировочных (training 1 в worldspawn, у тестовой арены — в коде), по алфавиту.
+ * Карты разбираем целиком — раз в матч, это недорого.
+ */
 function rotation(): string[] {
   const files = readMapFiles();
-  return mapNames(files).filter((name) => !(files[name] && /"training"\s+"1"/.test(files[name])));
+  return mapNames(files).filter((name) => !loadMap(name, files).training);
 }
 
 /** Следующая карта после current. Текущая тренировочная (её нет в списке) — остаёмся на ней. */

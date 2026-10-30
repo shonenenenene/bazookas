@@ -83,6 +83,7 @@ export const testMap: GameMap = {
   name: 'test_arena',
   description: 'the og sandbox. stairs, ramps, a surf ridge, walljump alley and dummies 2 shoot',
   preview: { eye: vec3(880, 420, 880), yaw: Math.PI / 4, pitch: -0.32 },
+  training: true, // в онлайне — с манекенами, в смену карт после матча не попадает
   brushes,
   // Первая — для песочницы. В сети каждый раз выбирается самая дальняя от живых игроков.
   // yaw: 0 — смотрит на север (−Z), π/2 — на запад, −π/2 — на восток
